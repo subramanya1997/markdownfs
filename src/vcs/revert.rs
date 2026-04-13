@@ -10,8 +10,10 @@ pub fn restore_from_tree(
     store: &BlobStore,
     root_tree_id: ObjectId,
 ) -> Result<(), VfsError> {
-    // Create a fresh VFS
+    // Preserve the registry across reverts
+    let registry = fs.registry.clone();
     *fs = VirtualFs::new();
+    fs.registry = registry;
 
     // Recursively restore from root tree
     restore_dir(fs, store, "/", root_tree_id)?;
@@ -39,18 +41,18 @@ fn restore_dir(
         match entry.kind {
             TreeEntryKind::Blob => {
                 let content = store.get(&entry.id)?;
-                fs.touch(&child_path, 0, 0)?;
+                fs.touch(&child_path, entry.uid, entry.gid)?;
                 fs.write_file(&child_path, content.to_vec())?;
                 fs.chmod(&child_path, entry.mode)?;
             }
             TreeEntryKind::Tree => {
-                fs.mkdir(&child_path, 0, 0)?;
+                fs.mkdir(&child_path, entry.uid, entry.gid)?;
                 fs.chmod(&child_path, entry.mode)?;
                 restore_dir(fs, store, &child_path, entry.id)?;
             }
             TreeEntryKind::Symlink => {
                 let target = String::from_utf8_lossy(store.get(&entry.id)?).to_string();
-                fs.ln_s(&target, &child_path, 0, 0)?;
+                fs.ln_s(&target, &child_path, entry.uid, entry.gid)?;
             }
         }
     }

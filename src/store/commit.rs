@@ -8,6 +8,7 @@ pub struct CommitObject {
     pub parent: Option<ObjectId>,
     pub timestamp: u64,
     pub message: String,
+    pub author: String,
 }
 
 impl CommitObject {

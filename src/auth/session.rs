@@ -1,4 +1,15 @@
+use super::perms::{check_permission, Access};
 use super::{Gid, Uid, ROOT_UID};
+use crate::fs::inode::Inode;
+
+/// Context for the user an agent is acting on behalf of.
+#[derive(Debug, Clone)]
+pub struct DelegateContext {
+    pub uid: Uid,
+    pub gid: Gid,
+    pub groups: Vec<Gid>,
+    pub username: String,
+}
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -6,6 +17,10 @@ pub struct Session {
     pub gid: Gid,
     pub groups: Vec<Gid>,
     pub username: String,
+    /// When set, the session acts on behalf of this user.
+    /// All permission checks require BOTH the principal AND
+    /// the delegate to have access (intersection / least-privilege).
+    pub delegate: Option<DelegateContext>,
 }
 
 impl Session {
@@ -15,6 +30,7 @@ impl Session {
             gid,
             groups,
             username,
+            delegate: None,
         }
     }
 
@@ -24,10 +40,122 @@ impl Session {
             gid: 0,
             groups: vec![0, 1],
             username: "root".to_string(),
+            delegate: None,
         }
     }
 
     pub fn is_root(&self) -> bool {
         self.uid == ROOT_UID
     }
+
+    /// Check permission with delegation intersection.
+    /// Returns true only if both the principal AND the delegate (if any) have access.
+    pub fn has_permission(&self, inode: &Inode, access: Access) -> bool {
+        if !check_permission(inode, self.uid, &self.groups, access) {
+            return false;
+        }
+        if let Some(ref delegate) = self.delegate {
+            if !check_permission(inode, delegate.uid, &delegate.groups, access) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check permission using raw mode/uid/gid bits (for LsEntry filtering).
+    /// Respects delegation intersection.
+    pub fn has_permission_bits(
+        &self,
+        mode: u16,
+        file_uid: Uid,
+        file_gid: Gid,
+        access: Access,
+    ) -> bool {
+        if !check_bits(self.uid, &self.groups, mode, file_uid, file_gid, access) {
+            return false;
+        }
+        if let Some(ref delegate) = self.delegate {
+            if !check_bits(
+                delegate.uid,
+                &delegate.groups,
+                mode,
+                file_uid,
+                file_gid,
+                access,
+            ) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// The effective uid for file ownership — if delegating, use the delegate's uid.
+    pub fn effective_uid(&self) -> Uid {
+        match &self.delegate {
+            Some(d) => d.uid,
+            None => self.uid,
+        }
+    }
+
+    /// The effective gid for file ownership — if delegating, use the delegate's gid.
+    pub fn effective_gid(&self) -> Gid {
+        match &self.delegate {
+            Some(d) => d.gid,
+            None => self.gid,
+        }
+    }
+
+    /// Whether either the principal or (if delegating) the delegate is root.
+    /// For intersection: both must pass, so root status only helps if the OTHER side passes.
+    /// This is used for checks like "is this session effectively root?" — answer: only if
+    /// there's no delegate constraining it.
+    pub fn is_effectively_root(&self) -> bool {
+        if self.uid != ROOT_UID {
+            return false;
+        }
+        match &self.delegate {
+            Some(d) => d.uid == ROOT_UID,
+            None => true,
+        }
+    }
+
+    /// Whether the principal (ignoring delegation) is the owner of a file.
+    /// When delegating, checks if the delegate is the owner.
+    pub fn is_effective_owner(&self, file_uid: Uid) -> bool {
+        match &self.delegate {
+            Some(d) => {
+                // Both must be owner or root
+                let principal_ok = self.uid == ROOT_UID || self.uid == file_uid;
+                let delegate_ok = d.uid == ROOT_UID || d.uid == file_uid;
+                principal_ok && delegate_ok
+            }
+            None => self.uid == ROOT_UID || self.uid == file_uid,
+        }
+    }
+}
+
+/// Raw bit-level permission check for a single principal.
+fn check_bits(
+    uid: Uid,
+    groups: &[Gid],
+    mode: u16,
+    file_uid: Uid,
+    file_gid: Gid,
+    access: Access,
+) -> bool {
+    if uid == ROOT_UID {
+        return true;
+    }
+    let bit = match access {
+        Access::Read => 4,
+        Access::Write => 2,
+        Access::Execute => 1,
+    };
+    if uid == file_uid {
+        return (mode >> 6) & bit != 0;
+    }
+    if groups.contains(&file_gid) {
+        return (mode >> 3) & bit != 0;
+    }
+    mode & bit != 0
 }

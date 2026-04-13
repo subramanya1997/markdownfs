@@ -1,10 +1,13 @@
-use mdvfs::cmd;
-use mdvfs::cmd::parser;
-use mdvfs::fs::VirtualFs;
-use mdvfs::persist::PersistManager;
-use mdvfs::vcs::Vcs;
+use markdownfs::auth::session::Session;
+use markdownfs::auth::ROOT_UID;
+use markdownfs::cmd;
+use markdownfs::cmd::parser;
+use markdownfs::fs::VirtualFs;
+use markdownfs::persist::PersistManager;
+use markdownfs::vcs::Vcs;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+
 fn main() {
     let cwd = std::env::current_dir().expect("failed to get current directory");
     let persist = PersistManager::new(&cwd);
@@ -14,7 +17,7 @@ fn main() {
             Ok((fs, vcs)) => {
                 let commit_count = vcs.commits.len();
                 println!(
-                    "mdvfs v0.1.0 — Loaded from disk ({commit_count} commits, {} objects)",
+                    "markdownfs v0.1.0 — Loaded from disk ({commit_count} commits, {} objects)",
                     vcs.store.object_count()
                 );
                 (fs, vcs)
@@ -26,21 +29,27 @@ fn main() {
             }
         }
     } else {
-        println!("mdvfs v0.1.0 — Markdown Virtual File System");
+        println!("markdownfs v0.1.0 — Markdown Virtual File System");
         (VirtualFs::new(), Vcs::new())
     };
 
-    println!("Type 'help' for available commands, 'exit' to quit.\n");
-
     let mut rl = DefaultEditor::new().expect("failed to initialize readline");
-    let history_path = dirs_home().map(|h| format!("{h}/.mdvfs_history"));
+    let history_path = dirs_home().map(|h| format!("{h}/.markdownfs_history"));
 
     if let Some(ref path) = history_path {
         let _ = rl.load_history(path);
     }
 
+    // ─── Login flow ───
+    let mut session = login_flow(&mut fs, &mut rl);
+    println!(
+        "Logged in as '{}' (uid={}, gid={})\n",
+        session.username, session.uid, session.gid
+    );
+    println!("Type 'help' for available commands, 'exit' to quit.\n");
+
     loop {
-        let prompt = format!("mdvfs:{} $ ", fs.pwd());
+        let prompt = format!("{}@markdownfs:{} $ ", session.username, fs.pwd());
         match rl.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim();
@@ -53,10 +62,10 @@ fn main() {
                 match line {
                     "exit" | "quit" => break,
                     _ if line.starts_with("edit ") => {
-                        handle_edit(line, &mut fs, &mut vcs, &mut rl);
+                        handle_edit(line, &mut fs, &mut vcs, &mut rl, &session);
                     }
                     _ => {
-                        let result = execute_line(line, &mut fs, &mut vcs);
+                        let result = execute_line(line, &mut fs, &mut vcs, &mut session);
                         match result {
                             Ok(output) => {
                                 if !output.is_empty() {
@@ -92,17 +101,96 @@ fn main() {
     println!("Goodbye!");
 }
 
-fn handle_edit(line: &str, fs: &mut VirtualFs, vcs: &mut Vcs, rl: &mut DefaultEditor) {
+fn login_flow(fs: &mut VirtualFs, rl: &mut DefaultEditor) -> Session {
+    // Check if there are any non-root users
+    let has_users = fs.registry.list_users().iter().any(|u| u.uid != ROOT_UID);
+
+    if !has_users {
+        // First run: create admin user
+        println!("No users found. Let's create an admin account.");
+        loop {
+            match rl.readline("Admin username: ") {
+                Ok(name) => {
+                    let name = name.trim().to_string();
+                    if name.is_empty() {
+                        eprintln!("Username cannot be empty.");
+                        continue;
+                    }
+                    match fs.registry.add_user(&name, false) {
+                        Ok((uid, _)) => {
+                            // Add to wheel group for admin privileges
+                            let _ = fs.registry.usermod_add_group(&name, "wheel");
+                            let user = fs.registry.get_user(uid).unwrap();
+                            return Session::new(
+                                user.uid,
+                                user.groups.first().copied().unwrap_or(0),
+                                user.groups.clone(),
+                                user.name.clone(),
+                            );
+                        }
+                        Err(e) => eprintln!("{e}"),
+                    }
+                }
+                Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
+                    // Fall back to root
+                    return Session::root();
+                }
+                Err(e) => {
+                    eprintln!("readline error: {e}");
+                    return Session::root();
+                }
+            }
+        }
+    } else {
+        // Existing users — prompt for login
+        loop {
+            match rl.readline("Login as: ") {
+                Ok(name) => {
+                    let name = name.trim().to_string();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    if let Some(uid) = fs.registry.lookup_uid(&name) {
+                        let user = fs.registry.get_user(uid).unwrap();
+                        return Session::new(
+                            user.uid,
+                            user.groups.first().copied().unwrap_or(0),
+                            user.groups.clone(),
+                            user.name.clone(),
+                        );
+                    } else {
+                        eprintln!("Unknown user: {name}");
+                    }
+                }
+                Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
+                    // Fall back to root
+                    return Session::root();
+                }
+                Err(e) => {
+                    eprintln!("readline error: {e}");
+                    return Session::root();
+                }
+            }
+        }
+    }
+}
+
+fn handle_edit(
+    line: &str,
+    fs: &mut VirtualFs,
+    vcs: &mut Vcs,
+    rl: &mut DefaultEditor,
+    session: &Session,
+) {
     let path = line.strip_prefix("edit ").unwrap().trim();
 
     if path.is_empty() {
-        eprintln!("mdvfs: edit: missing file path");
+        eprintln!("markdownfs: edit: missing file path");
         return;
     }
 
-    // Validate it's a .md file
     if !path.ends_with(".md") {
-        eprintln!("mdvfs: only .md files are supported: '{path}'");
+        eprintln!("markdownfs: only .md files are supported: '{path}'");
         return;
     }
 
@@ -150,14 +238,13 @@ fn handle_edit(line: &str, fs: &mut VirtualFs, vcs: &mut Vcs, rl: &mut DefaultEd
         }
     }
 
-    // Remove trailing newline if content is non-empty
     if content.ends_with('\n') {
         content.pop();
     }
 
     // Create file if it doesn't exist
     if fs.resolve_path(path).is_err() {
-        if let Err(e) = fs.touch(path, 0, 0) {
+        if let Err(e) = fs.touch(path, session.uid, session.gid) {
             eprintln!("{e}");
             return;
         }
@@ -168,8 +255,8 @@ fn handle_edit(line: &str, fs: &mut VirtualFs, vcs: &mut Vcs, rl: &mut DefaultEd
         return;
     }
 
-    // Auto-commit
-    match vcs.commit(fs, &format!("edit {path}")) {
+    // Auto-commit with author
+    match vcs.commit(fs, &format!("edit {path}"), &session.username) {
         Ok(id) => println!("[{}] edit {path}", id.short_hex()),
         Err(e) => eprintln!("auto-commit failed: {e}"),
     }
@@ -179,7 +266,8 @@ fn execute_line(
     line: &str,
     fs: &mut VirtualFs,
     vcs: &mut Vcs,
-) -> Result<String, mdvfs::error::VfsError> {
+    session: &mut Session,
+) -> Result<String, markdownfs::error::VfsError> {
     let pipeline = parser::parse_pipeline(line);
     if pipeline.commands.is_empty() {
         return Ok(String::new());
@@ -194,7 +282,7 @@ fn execute_line(
                 } else {
                     &first.args.join(" ")
                 };
-                let id = vcs.commit(fs, msg)?;
+                let id = vcs.commit(fs, msg, &session.username)?;
                 return Ok(format!("[{}] {msg}\n", id.short_hex()));
             }
             "log" => {
@@ -208,9 +296,10 @@ fn execute_line(
                         .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
                         .unwrap_or_else(|| "???".to_string());
                     output.push_str(&format!(
-                        "\x1b[33m{}\x1b[0m {} {}\n",
+                        "\x1b[33m{}\x1b[0m {} \x1b[36m{}\x1b[0m {}\n",
                         c.id.short_hex(),
                         time,
+                        c.author,
                         c.message
                     ));
                 }
@@ -218,7 +307,7 @@ fn execute_line(
             }
             "revert" => {
                 if first.args.is_empty() {
-                    return Err(mdvfs::error::VfsError::InvalidArgs {
+                    return Err(markdownfs::error::VfsError::InvalidArgs {
                         message: "revert: need commit hash prefix".to_string(),
                     });
                 }
@@ -232,7 +321,7 @@ fn execute_line(
         }
     }
 
-    cmd::execute_pipeline(&pipeline, fs)
+    cmd::execute_pipeline(&pipeline, fs, session)
 }
 
 fn dirs_home() -> Option<String> {

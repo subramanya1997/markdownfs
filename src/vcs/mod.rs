@@ -25,7 +25,12 @@ impl Vcs {
         }
     }
 
-    pub fn commit(&mut self, fs: &VirtualFs, message: &str) -> Result<ObjectId, VfsError> {
+    pub fn commit(
+        &mut self,
+        fs: &VirtualFs,
+        message: &str,
+        author: &str,
+    ) -> Result<ObjectId, VfsError> {
         let root_tree_id = self.snapshot_dir(fs, fs.root_id())?;
 
         let timestamp = SystemTime::now()
@@ -39,6 +44,7 @@ impl Vcs {
             parent: self.head,
             timestamp,
             message: message.to_string(),
+            author: author.to_string(),
         };
 
         let commit_data = commit.serialize();
@@ -88,6 +94,8 @@ impl Vcs {
                 kind,
                 id,
                 mode: child.mode,
+                uid: child.uid,
+                gid: child.gid,
             });
         }
 
@@ -147,7 +155,6 @@ impl Vcs {
             self.store.object_count()
         ));
 
-        // Count files
         let mut file_count = 0u64;
         let mut total_size = 0u64;
         for inode in fs.all_inodes().values() {

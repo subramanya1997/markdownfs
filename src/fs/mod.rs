@@ -1,6 +1,6 @@
 pub mod inode;
 
-use crate::auth::perms::{check_permission, has_setgid, Access};
+use crate::auth::perms::{has_setgid, Access};
 use crate::auth::registry::UserRegistry;
 use crate::auth::session::Session;
 use crate::auth::{Gid, Uid, ROOT_GID, ROOT_UID};
@@ -118,7 +118,7 @@ impl VirtualFs {
 
         // Check execute on starting directory
         let start_inode = self.get_inode(current)?;
-        if !check_permission(start_inode, session.uid, &session.groups, Access::Execute) {
+        if !session.has_permission(start_inode, Access::Execute) {
             return Err(VfsError::PermissionDenied {
                 path: path.to_string(),
             });
@@ -137,9 +137,7 @@ impl VirtualFs {
                     })?;
                     // Check execute on intermediate directories
                     let inode = self.get_inode(current)?;
-                    if inode.is_dir()
-                        && !check_permission(inode, session.uid, &session.groups, Access::Execute)
-                    {
+                    if inode.is_dir() && !session.has_permission(inode, Access::Execute) {
                         return Err(VfsError::PermissionDenied {
                             path: path.to_string(),
                         });
@@ -644,7 +642,12 @@ impl VirtualFs {
         Ok(())
     }
 
-    pub fn tree(&self, path: Option<&str>, prefix: &str) -> Result<String, VfsError> {
+    pub fn tree(
+        &self,
+        path: Option<&str>,
+        prefix: &str,
+        session: Option<&Session>,
+    ) -> Result<String, VfsError> {
         let id = match path {
             Some(p) => self.resolve_path(p)?,
             None => self.cwd,
@@ -653,7 +656,7 @@ impl VirtualFs {
         if prefix.is_empty() {
             output.push_str(".\n");
         }
-        self.tree_recursive(id, prefix, &mut output)?;
+        self.tree_recursive(id, prefix, &mut output, session)?;
         Ok(output)
     }
 
@@ -662,17 +665,23 @@ impl VirtualFs {
         id: InodeId,
         prefix: &str,
         output: &mut String,
+        session: Option<&Session>,
     ) -> Result<(), VfsError> {
         let entries = self.dir_entries(id)?;
-        let count = entries.len();
-        for (i, (name, &child_id)) in entries.iter().enumerate() {
+        // Filter entries by read permission
+        let visible: Vec<_> = entries
+            .iter()
+            .filter(|&(_, child_id)| self.is_visible(*child_id, session))
+            .collect();
+        let count = visible.len();
+        for (i, (name, child_id)) in visible.iter().enumerate() {
             let is_last = i == count - 1;
             let connector = if is_last {
                 "\u{2514}\u{2500}\u{2500} "
             } else {
                 "\u{251c}\u{2500}\u{2500} "
             };
-            let child = self.get_inode(child_id)?;
+            let child = self.get_inode(**child_id)?;
 
             output.push_str(prefix);
             output.push_str(connector);
@@ -688,7 +697,7 @@ impl VirtualFs {
                 } else {
                     format!("{prefix}\u{2502}   ")
                 };
-                self.tree_recursive(child_id, &new_prefix, output)?;
+                self.tree_recursive(**child_id, &new_prefix, output, session)?;
             }
         }
         Ok(())
@@ -698,6 +707,7 @@ impl VirtualFs {
         &self,
         path: Option<&str>,
         pattern: Option<&str>,
+        session: Option<&Session>,
     ) -> Result<Vec<String>, VfsError> {
         let id = match path {
             Some(p) => self.resolve_path(p)?,
@@ -708,7 +718,7 @@ impl VirtualFs {
             None => ".".to_string(),
         };
         let mut results = Vec::new();
-        self.find_recursive(id, &base, pattern, &mut results)?;
+        self.find_recursive(id, &base, pattern, &mut results, session)?;
         Ok(results)
     }
 
@@ -718,9 +728,14 @@ impl VirtualFs {
         current_path: &str,
         pattern: Option<&str>,
         results: &mut Vec<String>,
+        session: Option<&Session>,
     ) -> Result<(), VfsError> {
         let entries = self.dir_entries(id)?;
         for (name, &child_id) in entries {
+            if !self.is_visible(child_id, session) {
+                continue;
+            }
+
             let child_path = if current_path == "." {
                 format!("./{name}")
             } else {
@@ -738,7 +753,7 @@ impl VirtualFs {
             }
 
             if child.is_dir() {
-                self.find_recursive(child_id, &child_path, pattern, results)?;
+                self.find_recursive(child_id, &child_path, pattern, results, session)?;
             }
         }
         Ok(())
@@ -749,6 +764,7 @@ impl VirtualFs {
         pattern: &str,
         path: Option<&str>,
         recursive: bool,
+        session: Option<&Session>,
     ) -> Result<Vec<GrepResult>, VfsError> {
         let re = regex::Regex::new(pattern).map_err(|e| VfsError::InvalidArgs {
             message: format!("invalid regex: {e}"),
@@ -776,7 +792,7 @@ impl VirtualFs {
                 }
             }
             InodeKind::Directory { .. } if recursive => {
-                self.grep_recursive(id, base, &re, &mut results)?;
+                self.grep_recursive(id, base, &re, &mut results, session)?;
             }
             InodeKind::Directory { .. } => {
                 return Err(VfsError::IsDirectory {
@@ -794,9 +810,14 @@ impl VirtualFs {
         base: &str,
         re: &regex::Regex,
         results: &mut Vec<GrepResult>,
+        session: Option<&Session>,
     ) -> Result<(), VfsError> {
         let entries = self.dir_entries(id)?;
         for (name, &child_id) in entries {
+            if !self.is_visible(child_id, session) {
+                continue;
+            }
+
             let child_path = if base == "." {
                 format!("./{name}")
             } else {
@@ -817,12 +838,27 @@ impl VirtualFs {
                     }
                 }
                 InodeKind::Directory { .. } => {
-                    self.grep_recursive(child_id, &child_path, re, results)?;
+                    self.grep_recursive(child_id, &child_path, re, results, session)?;
                 }
                 _ => {}
             }
         }
         Ok(())
+    }
+
+    /// Check if a user can see this inode (has read permission).
+    /// If session is None, everything is visible (internal/root use).
+    /// Respects delegation: both principal and delegate must have read access.
+    fn is_visible(&self, id: InodeId, session: Option<&Session>) -> bool {
+        let session = match session {
+            Some(s) => s,
+            None => return true,
+        };
+        let inode = match self.get_inode(id) {
+            Ok(i) => i,
+            Err(_) => return false,
+        };
+        session.has_permission(inode, Access::Read)
     }
 
     pub fn all_inodes(&self) -> &HashMap<InodeId, Inode> {

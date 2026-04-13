@@ -7,6 +7,8 @@ pub struct TreeEntry {
     pub kind: TreeEntryKind,
     pub id: ObjectId,
     pub mode: u16,
+    pub uid: u32,
+    pub gid: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
