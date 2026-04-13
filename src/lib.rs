@@ -1,8 +1,11 @@
 pub mod auth;
 pub mod cmd;
+pub mod config;
+pub mod db;
 pub mod error;
 pub mod fs;
 pub mod io;
 pub mod persist;
+pub mod server;
 pub mod store;
 pub mod vcs;

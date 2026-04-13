@@ -434,6 +434,10 @@ impl VirtualFs {
         }
     }
 
+    pub fn cat_owned(&self, path: &str) -> Result<Vec<u8>, VfsError> {
+        self.cat(path).map(|b| b.to_vec())
+    }
+
     pub fn write_file(&mut self, path: &str, content: Vec<u8>) -> Result<(), VfsError> {
         validate_markdown_filename(path)?;
         let id = self.resolve_path(path)?;

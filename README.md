@@ -1,54 +1,135 @@
 # markdownfs
 
-A high-performance, in-memory virtual file system built in Rust. markdownfs supports Unix-like commands, Git-style versioning with content-addressable storage, disk persistence, and multi-user permissioning — designed as a new-age database for AI agents and multi-tenant systems.
+A high-performance, concurrent markdown database built in Rust. Supports Unix-like commands, Git-style versioning with content-addressable storage, disk persistence, multi-user permissioning, HTTP/REST API, and MCP (Model Context Protocol) for AI agents.
 
 Only Markdown (`.md`) files are supported by design.
 
-## Features
+## Access Methods
 
-- **Unix-like CLI** — `ls`, `cd`, `mkdir`, `touch`, `cat`, `rm`, `mv`, `cp`, `grep`, `find`, `tree`, `chmod`, `chown`, `ln -s`, and more
-- **Pipe support** — chain commands: `grep "TODO" notes/ | head -5 | wc -l`
-- **Inline editor** — `edit file.md` opens a multi-line editor with auto-commit
-- **Git-style versioning** — `commit`, `log`, `revert`, `status` with full snapshot history and author tracking
-- **Content-addressable storage** — SHA-256 deduplication (10K identical files = 1 stored blob)
-- **Disk persistence** — atomic save/load with bincode serialization, survives restarts
-- **Multi-user permissions** — uid/gid ownership, rwx permission enforcement on every operation, setgid inheritance, sticky bit
-- **Visibility filtering** — users only see files they have permission to read (`ls`, `tree`, `find`, `grep -r` all filter)
-- **Agent authentication** — token-based auth for AI agents and third-party systems
-- **User management** — `adduser`, `addagent`, `deluser`, `addgroup`, `delgroup`, `usermod`, `groups`, `whoami`, `su`, `id`
-- **Blazing fast** — in-memory HashMap-based inodes, ~130x average speedup over native filesystem operations
+markdownfs can be used three ways:
+
+| Method | Binary | Use Case |
+|---|---|---|
+| **CLI/REPL** | `markdownfs` | Interactive terminal use |
+| **HTTP/REST API** | `markdownfs-server` | Web apps, services, any HTTP client |
+| **MCP Server** | `markdownfs-mcp` | AI agents (Cursor, Claude, etc.) |
+
+All three share the same concurrent core (`MarkdownDb`) with `tokio::RwLock` for safe multi-reader/single-writer access.
 
 ## Quick Start
 
+### CLI
+
 ```bash
 cargo build --release
-cargo run --release
+cargo run --release --bin markdownfs
 ```
 
-On first run, you'll be prompted to create an admin account:
+### HTTP Server
 
-```
-markdownfs v0.1.0 — Markdown Virtual File System
-No users found. Let's create an admin account.
-Admin username: alice
-Logged in as 'alice' (uid=1, gid=2)
-
-Type 'help' for available commands, 'exit' to quit.
-
-alice@markdownfs:/ $
+```bash
+MARKDOWNFS_LISTEN=127.0.0.1:3000 cargo run --release --bin markdownfs-server
 ```
 
-On subsequent runs, you'll be prompted to log in:
+### MCP Server
 
-```
-markdownfs v0.1.0 — Loaded from disk (5 commits, 42 objects)
-Login as: alice
-Logged in as 'alice' (uid=1, gid=2)
+```bash
+cargo run --release --bin markdownfs-mcp
 ```
 
-State is automatically saved to `.vfs/state.bin` on exit and restored on next launch.
+Add to your MCP client config (e.g., Cursor `mcp.json`):
 
-## Commands
+```json
+{
+  "mcpServers": {
+    "markdownfs": {
+      "command": "/path/to/markdownfs-mcp",
+      "env": {
+        "MARKDOWNFS_DATA_DIR": "/path/to/data"
+      }
+    }
+  }
+}
+```
+
+## HTTP API Reference
+
+All endpoints accept `Authorization: Bearer <token>` or `Authorization: User <username>` headers.
+
+### Filesystem
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/fs/{path}` | Read file (markdown) or list directory (JSON) |
+| `PUT` | `/fs/{path}` | Write file or create directory (`X-Markdownfs-Type: directory`) |
+| `DELETE` | `/fs/{path}?recursive=true` | Delete file or directory |
+| `POST` | `/fs/{path}?op=copy&dst=...` | Copy file |
+| `POST` | `/fs/{path}?op=move&dst=...` | Move file |
+| `GET` | `/fs/{path}?stat=true` | File metadata (JSON) |
+
+### Search
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/search/grep?pattern=...&path=...&recursive=true` | Search file contents |
+| `GET` | `/search/find?path=...&name=...` | Find files by glob |
+| `GET` | `/tree/{path}` | Directory tree |
+
+### Version Control
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/vcs/commit` | Commit (`{"message": "..."}`) |
+| `GET` | `/vcs/log` | Commit history |
+| `POST` | `/vcs/revert` | Revert (`{"hash": "..."}`) |
+| `GET` | `/vcs/status` | Status |
+
+### Auth & Health
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/auth/login` | Login (`{"username": "..."}`) |
+| `GET` | `/health` | Health check + stats |
+
+### Example
+
+```bash
+# Write a file
+curl -X PUT http://localhost:3000/fs/docs/readme.md \
+  -H "Authorization: User alice" \
+  -d "# Hello World"
+
+# Read it back
+curl http://localhost:3000/fs/docs/readme.md
+
+# Commit
+curl -X POST http://localhost:3000/vcs/commit \
+  -H "Content-Type: application/json" \
+  -d '{"message": "initial commit"}'
+
+# Search
+curl "http://localhost:3000/search/grep?pattern=Hello&recursive=true"
+```
+
+## MCP Tools
+
+The MCP server exposes these tools for AI agents:
+
+| Tool | Description |
+|---|---|
+| `read_file` | Read a markdown file by path |
+| `write_file` | Write content to a file (creates if needed) |
+| `list_directory` | List files in a directory |
+| `search_files` | Grep for a pattern across files |
+| `find_files` | Find files by glob pattern |
+| `create_directory` | Create a directory (with parents) |
+| `delete_file` | Delete a file or directory |
+| `move_file` | Move or rename |
+| `commit` | Commit current state |
+| `get_history` | Show commit log |
+| `revert` | Revert to a commit |
+
+## CLI Commands
 
 ### File Operations
 
@@ -57,217 +138,109 @@ State is automatically saved to `.vfs/state.bin` on exit and restored on next la
 | `ls [-l] [path]` | List directory contents (filtered by permission) |
 | `cd [path]` | Change directory |
 | `pwd` | Print working directory |
-| `mkdir [-p] <path>` | Create directory (`-p` for nested) |
+| `mkdir [-p] <path>` | Create directory |
 | `touch <file.md>` | Create empty markdown file |
 | `cat <file>` | Display file contents |
 | `write <file> [content]` | Write content to file |
 | `edit <file.md>` | Multi-line editor with auto-commit |
 | `rm [-r] <path>` | Remove file or directory |
-| `rmdir <path>` | Remove empty directory |
 | `mv <src> <dst>` | Move or rename |
-| `cp <src> <dst>` | Copy file (owned by caller) |
-| `stat <path>` | Show file metadata (inode, mode, owner, group, timestamps) |
-| `tree [path]` | Directory tree view (filtered by permission) |
-| `find [path] [-name pattern]` | Find files by glob pattern (filtered by permission) |
-| `grep [-r] <pattern> [path]` | Search file contents (filtered by permission) |
-| `head [-n N]` | First N lines (pipe) |
-| `tail [-n N]` | Last N lines (pipe) |
-| `wc [-l\|-w\|-c]` | Count lines/words/bytes (pipe) |
-| `chmod <mode> <path>` | Change permissions (owner or root) |
-| `chown <user:group> <path>` | Change ownership (root or owner for group) |
-| `ln -s <target> <link>` | Create symbolic link |
-| `echo <text>` | Print text |
+| `cp <src> <dst>` | Copy file |
+| `stat <path>` | Show metadata |
+| `tree [path]` | Directory tree |
+| `find [path] [-name pattern]` | Find files |
+| `grep [-r] <pattern> [path]` | Search contents |
+| `chmod <mode> <path>` | Change permissions |
+| `chown <user:group> <path>` | Change ownership |
+| `ln -s <target> <link>` | Symbolic link |
 
 ### User Management
 
 | Command | Description |
 |---|---|
 | `adduser <name>` | Create user (admin only) |
-| `addagent <name>` | Create agent with API token (admin only) |
+| `addagent <name>` | Create agent with API token |
 | `deluser <name>` | Delete user (root only) |
-| `addgroup <name>` | Create group (admin only) |
-| `delgroup <name>` | Delete group (root only) |
-| `usermod -aG <group> <user>` | Add user to group (admin only) |
-| `usermod -rG <group> <user>` | Remove user from group (admin only) |
+| `addgroup <name>` | Create group |
+| `delgroup <name>` | Delete group |
+| `usermod -aG <group> <user>` | Add user to group |
 | `groups [user]` | Show group memberships |
 | `whoami` | Show current user |
-| `id [user]` | Show user/group identity |
-| `su <user>` | Switch user (root or wheel members) |
+| `su <user>` | Switch user |
 
 ### Version Control
 
 | Command | Description |
 |---|---|
-| `commit <message>` | Snapshot current filesystem state (tracks author) |
-| `log` | Show commit history with author |
-| `revert <hash>` | Revert to a commit (preserves file ownership) |
-| `status` | Show current state summary |
+| `commit <message>` | Snapshot state |
+| `log` | Show history |
+| `revert <hash>` | Revert to commit |
+| `status` | Summary |
 
-### Pipes
+## Configuration
 
-Commands can be chained with `|`:
+Environment variables:
 
-```
-alice@markdownfs:/ $ echo "# My Notes" | write notes.md
-alice@markdownfs:/ $ cat notes.md | grep "Notes" | wc -l
-1
-alice@markdownfs:/ $ find . -name *.md | head -5
-```
-
-### The `edit` Command
-
-`edit` opens an interactive multi-line editor and auto-commits on save:
-
-```
-alice@markdownfs:/ $ edit readme.md
-Enter new content (type EOF on a blank line to finish, CANCEL to abort):
-   1 | # Hello World
-   2 | This is my document.
-   3 | EOF
-[a3f2c1d] edit readme.md
-```
-
-## Multi-User Permissions
-
-markdownfs implements full Unix-style ownership and permission enforcement:
-
-### Permission Model
-
-- Every inode has `uid`, `gid`, and `mode` (rwx bits in owner/group/other format)
-- Root user (uid=0) bypasses all permission checks
-- Permission checks on **every operation**: path traversal (execute), read, write, create, delete
-- `ls -l` shows owner and group names:
-  ```
-  drwxr-xr-x alice    devs          0 Apr 13 10:00 shared/
-  -rw-r-----  bob     devs        142 Apr 13 10:05 notes.md
-  ```
-
-### Visibility Filtering
-
-Users only see files they have read permission for. This applies to:
-- `ls` — hides entries the user can't read
-- `tree` — skips subtrees the user can't access
-- `find` — omits files the user can't read
-- `grep -r` — only searches files the user can read
-
-### Special Bits
-
-- **Setgid** on directories (`chmod 2755`): new files inherit the directory's group, enabling team collaboration
-- **Sticky bit** on directories (`chmod 1777`): only the file owner, directory owner, or root can delete entries (like `/tmp`)
-
-### Agent Authentication
-
-AI agents are created with `addagent` and receive a SHA-256 hashed API token:
-
-```
-root@markdownfs:/ $ addagent crawler-bot
-Agent 'crawler-bot' created (uid=3)
-API token (save this — shown only once):
-  a1b2c3d4e5f6...
-```
-
-### Example: Multi-Tenant Setup
-
-```bash
-# As admin, create team structure
-addgroup engineering
-adduser alice
-adduser bob
-usermod -aG engineering alice
-usermod -aG engineering bob
-
-# Create shared workspace with setgid
-mkdir projects
-chown root:engineering projects
-chmod 2775 projects
-
-# Alice creates a file — automatically inherits 'engineering' group
-su alice
-touch projects/design.md
-write projects/design.md # Architecture Notes
-
-# Bob can access it through group permissions
-su bob
-cat projects/design.md    # works!
-```
+| Variable | Default | Description |
+|---|---|---|
+| `MARKDOWNFS_DATA_DIR` | Current directory | Data storage directory |
+| `MARKDOWNFS_LISTEN` | `127.0.0.1:3000` | HTTP server listen address |
+| `MARKDOWNFS_AUTOSAVE_SECS` | `5` | Auto-save interval (seconds) |
+| `MARKDOWNFS_AUTOSAVE_WRITES` | `100` | Auto-save after N writes |
+| `MARKDOWNFS_MAX_FILE_SIZE` | `10485760` (10MB) | Maximum file size |
+| `MARKDOWNFS_MAX_INODES` | `1000000` | Maximum number of inodes |
+| `MARKDOWNFS_MAX_DEPTH` | `256` | Maximum directory depth |
+| `RUST_LOG` | `markdownfs=info` | Log level (tracing) |
 
 ## Architecture
 
 ```
 src/
-  auth/          Multi-user identity & permissions
-    mod.rs         User, Group types, uid/gid constants
-    registry.rs    UserRegistry — CRUD, agent tokens, group membership
-    perms.rs       Permission checks (rwx bits, setgid, sticky)
-    session.rs     Session — current user context
-  cmd/           Command dispatch & pipe execution
-    mod.rs         All command implementations + permission enforcement
-    parser.rs      Tokenizer & pipeline parser
-  fs/            Virtual filesystem core
-    mod.rs         VirtualFs — inode management, path resolution, all FS ops
-    inode.rs       Inode, InodeKind (File/Directory/Symlink), uid/gid ownership
-  store/         Content-addressable object store
-    mod.rs         ObjectId (SHA-256), ObjectKind
-    blob.rs        BlobStore — deduplicated object storage
-    tree.rs        TreeEntry (with uid/gid), TreeObject
-    commit.rs      CommitObject (with author tracking)
-  vcs/           Version control
-    mod.rs         Vcs — commit, log, revert, status
-    revert.rs      Tree-to-filesystem reconstruction (preserves ownership)
-    snapshot.rs    Filesystem-to-tree serialization (captures ownership)
-  io/            I/O utilities
-  persist.rs     Disk persistence (atomic save/load, V1/V2 migration)
-  error.rs       VfsError enum
-  lib.rs         Module declarations
-  main.rs        REPL, edit command, login flow
+  db.rs            Concurrent MarkdownDb (Arc<RwLock<DbInner>>)
+  config.rs        Configuration from env vars
+  server/          HTTP/REST API (axum)
+    mod.rs           Router setup
+    routes_fs.rs     Filesystem endpoints
+    routes_vcs.rs    VCS endpoints
+    routes_auth.rs   Auth + health endpoints
+    middleware.rs    Auth extraction
+  bin/
+    markdownfs_server.rs  HTTP server binary
+    markdownfs_mcp.rs     MCP server binary
+  auth/            Multi-user identity & permissions
+    mod.rs           User, Group types
+    registry.rs      UserRegistry CRUD
+    perms.rs         Permission checks
+    session.rs       Session context
+  cmd/             Command dispatch & pipes
+  fs/              Virtual filesystem core
+    mod.rs           VirtualFs — inodes, path resolution, all ops
+    inode.rs         Inode types
+  store/           Content-addressable object store
+  vcs/             Version control (commit, revert, log)
+  persist.rs       Disk persistence (atomic bincode)
+  error.rs         VfsError enum
+  main.rs          CLI/REPL binary
 ```
-
-### Key Design Decisions
-
-- **In-memory inodes** — `HashMap<InodeId, Inode>` for O(1) lookups. Directories use `BTreeMap` for sorted entries.
-- **Content-addressable storage** — Objects are keyed by SHA-256 hash. Identical content is stored once, regardless of how many files reference it.
-- **Atomic persistence** — Writes to a temp file, then renames. No partial state on crash.
-- **Bincode serialization** — Binary format, faster than JSON/CBOR for known structures.
-- **Markdown-only** — `touch` and `edit` enforce `.md` extension. This is intentional — markdownfs is a purpose-built store for structured text.
-- **Session-based identity** — Session is held in the REPL, not stored in the filesystem. Passed through the entire dispatch chain.
-- **Visibility = permission** — If you can't read it, you can't see it. No information leakage through directory listings.
 
 ## Performance
 
-Benchmarks against native filesystem (run with `cargo test --test perf_comparison --release`):
-
-| Operation | markdownfs | Native | Speedup |
-|---|---|---|---|
-| File creation (10K) | ~microseconds | ~milliseconds | ~50-100x |
-| Sequential reads (10K) | ~microseconds | ~milliseconds | ~30-80x |
-| Directory listing | ~microseconds | ~milliseconds | ~15-30x |
-| Commit (10K files) | ~milliseconds | N/A | — |
-| Persistence save | ~milliseconds | N/A | — |
-
-Run the full benchmark suite:
+~130x average speedup over native filesystem (in-memory, zero-copy reads, content-addressable dedup).
 
 ```bash
-cargo test --test perf --release -- --nocapture
-cargo test --test perf_comparison --release -- --nocapture
+cargo test --release --test perf -- --nocapture
+cargo test --release --test perf_comparison -- --nocapture
 ```
 
 ## Testing
 
+233 tests across 5 suites:
+
 ```bash
-# All tests (49 tests: 17 unit + 31 integration + 1 perf comparison)
-cargo test --test integration --lib --test perf_comparison
-
-# Integration tests (includes permission tests)
-cargo test --test integration
-
-# Auth module tests
-cargo test auth
-
-# Performance benchmarks
-cargo test --test perf --release -- --nocapture
-
-# Native filesystem comparison
-cargo test --test perf_comparison --release -- --nocapture
+cargo test                        # all tests
+cargo test --test integration     # 106 integration tests
+cargo test --test permissions     # 72 permission tests
+cargo test --test perf --release  # 37 perf benchmarks
 ```
 
 ## License

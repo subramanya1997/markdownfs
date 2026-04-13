@@ -1,47 +1,48 @@
 use markdownfs::auth::session::Session;
-use markdownfs::auth::ROOT_UID;
-use markdownfs::cmd;
-use markdownfs::cmd::parser;
-use markdownfs::fs::VirtualFs;
-use markdownfs::persist::PersistManager;
-use markdownfs::vcs::Vcs;
+use markdownfs::config::Config;
+use markdownfs::db::MarkdownDb;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-fn main() {
-    let cwd = std::env::current_dir().expect("failed to get current directory");
-    let persist = PersistManager::new(&cwd);
-
-    let (mut fs, mut vcs) = if persist.state_exists() {
-        match persist.load() {
-            Ok((fs, vcs)) => {
-                let commit_count = vcs.commits.len();
+#[tokio::main]
+async fn main() {
+    let config = Config::from_env();
+    let db = match MarkdownDb::open(config) {
+        Ok(db) => {
+            let commits = db.commit_count().await;
+            let objects = db.object_count().await;
+            if commits > 0 {
                 println!(
-                    "markdownfs v0.1.0 — Loaded from disk ({commit_count} commits, {} objects)",
-                    vcs.store.object_count()
+                    "markdownfs v{} — Loaded from disk ({commits} commits, {objects} objects)",
+                    env!("CARGO_PKG_VERSION")
                 );
-                (fs, vcs)
+            } else {
+                println!(
+                    "markdownfs v{} — Markdown Virtual File System",
+                    env!("CARGO_PKG_VERSION")
+                );
             }
-            Err(e) => {
-                eprintln!("Warning: failed to load state: {e}");
-                eprintln!("Starting fresh.\n");
-                (VirtualFs::new(), Vcs::new())
-            }
+            db
         }
-    } else {
-        println!("markdownfs v0.1.0 — Markdown Virtual File System");
-        (VirtualFs::new(), Vcs::new())
+        Err(e) => {
+            eprintln!("Warning: failed to load state: {e}");
+            eprintln!("Starting fresh.\n");
+            MarkdownDb::open_memory()
+        }
     };
 
+    let _save_handle = db.spawn_auto_save();
+
     let mut rl = DefaultEditor::new().expect("failed to initialize readline");
-    let history_path = dirs_home().map(|h| format!("{h}/.markdownfs_history"));
+    let history_path = std::env::var("HOME")
+        .ok()
+        .map(|h| format!("{h}/.markdownfs_history"));
 
     if let Some(ref path) = history_path {
         let _ = rl.load_history(path);
     }
 
-    // ─── Login flow ───
-    let mut session = login_flow(&mut fs, &mut rl);
+    let mut session = login_flow(&db, &mut rl).await;
     println!(
         "Logged in as '{}' (uid={}, gid={})\n",
         session.username, session.uid, session.gid
@@ -49,7 +50,8 @@ fn main() {
     println!("Type 'help' for available commands, 'exit' to quit.\n");
 
     loop {
-        let prompt = format!("{}@markdownfs:{} $ ", session.username, fs.pwd());
+        let pwd = db.pwd().await;
+        let prompt = format!("{}@markdownfs:{pwd} $ ", session.username);
         match rl.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim();
@@ -62,19 +64,16 @@ fn main() {
                 match line {
                     "exit" | "quit" => break,
                     _ if line.starts_with("edit ") => {
-                        handle_edit(line, &mut fs, &mut vcs, &mut rl, &session);
+                        handle_edit(line, &db, &mut rl, &session).await;
                     }
-                    _ => {
-                        let result = execute_line(line, &mut fs, &mut vcs, &mut session);
-                        match result {
-                            Ok(output) => {
-                                if !output.is_empty() {
-                                    print!("{output}");
-                                }
+                    _ => match db.execute_command(line, &mut session).await {
+                        Ok(output) => {
+                            if !output.is_empty() {
+                                print!("{output}");
                             }
-                            Err(e) => eprintln!("{e}"),
                         }
-                    }
+                        Err(e) => eprintln!("{e}"),
+                    },
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -88,9 +87,11 @@ fn main() {
         }
     }
 
-    // Save state to disk on exit
-    match persist.save(&fs, &vcs) {
-        Ok(()) => println!("State saved to {}/", persist.data_dir().display()),
+    match db.save().await {
+        Ok(()) => {
+            let (_, dir) = db.persist_info();
+            println!("State saved to {}/", dir.display());
+        }
         Err(e) => eprintln!("Warning: failed to save state: {e}"),
     }
 
@@ -101,12 +102,10 @@ fn main() {
     println!("Goodbye!");
 }
 
-fn login_flow(fs: &mut VirtualFs, rl: &mut DefaultEditor) -> Session {
-    // Check if there are any non-root users
-    let has_users = fs.registry.list_users().iter().any(|u| u.uid != ROOT_UID);
+async fn login_flow(db: &MarkdownDb, rl: &mut DefaultEditor) -> Session {
+    let has_users = db.has_users().await;
 
     if !has_users {
-        // First run: create admin user
         println!("No users found. Let's create an admin account.");
         loop {
             match rl.readline("Admin username: ") {
@@ -116,23 +115,12 @@ fn login_flow(fs: &mut VirtualFs, rl: &mut DefaultEditor) -> Session {
                         eprintln!("Username cannot be empty.");
                         continue;
                     }
-                    match fs.registry.add_user(&name, false) {
-                        Ok((uid, _)) => {
-                            // Add to wheel group for admin privileges
-                            let _ = fs.registry.usermod_add_group(&name, "wheel");
-                            let user = fs.registry.get_user(uid).unwrap();
-                            return Session::new(
-                                user.uid,
-                                user.groups.first().copied().unwrap_or(0),
-                                user.groups.clone(),
-                                user.name.clone(),
-                            );
-                        }
+                    match db.create_admin(&name).await {
+                        Ok(session) => return session,
                         Err(e) => eprintln!("{e}"),
                     }
                 }
                 Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
-                    // Fall back to root
                     return Session::root();
                 }
                 Err(e) => {
@@ -142,7 +130,6 @@ fn login_flow(fs: &mut VirtualFs, rl: &mut DefaultEditor) -> Session {
             }
         }
     } else {
-        // Existing users — prompt for login
         loop {
             match rl.readline("Login as: ") {
                 Ok(name) => {
@@ -150,20 +137,12 @@ fn login_flow(fs: &mut VirtualFs, rl: &mut DefaultEditor) -> Session {
                     if name.is_empty() {
                         continue;
                     }
-                    if let Some(uid) = fs.registry.lookup_uid(&name) {
-                        let user = fs.registry.get_user(uid).unwrap();
-                        return Session::new(
-                            user.uid,
-                            user.groups.first().copied().unwrap_or(0),
-                            user.groups.clone(),
-                            user.name.clone(),
-                        );
-                    } else {
-                        eprintln!("Unknown user: {name}");
+                    match db.login(&name).await {
+                        Ok(session) => return session,
+                        Err(_) => eprintln!("Unknown user: {name}"),
                     }
                 }
                 Err(ReadlineError::Interrupted | ReadlineError::Eof) => {
-                    // Fall back to root
                     return Session::root();
                 }
                 Err(e) => {
@@ -175,10 +154,9 @@ fn login_flow(fs: &mut VirtualFs, rl: &mut DefaultEditor) -> Session {
     }
 }
 
-fn handle_edit(
+async fn handle_edit(
     line: &str,
-    fs: &mut VirtualFs,
-    vcs: &mut Vcs,
+    db: &MarkdownDb,
     rl: &mut DefaultEditor,
     session: &Session,
 ) {
@@ -194,9 +172,8 @@ fn handle_edit(
         return;
     }
 
-    // Show current content if file exists
-    if let Ok(content) = fs.cat(path) {
-        let text = String::from_utf8_lossy(content);
+    if let Ok(content) = db.cat(path).await {
+        let text = String::from_utf8_lossy(&content);
         if !text.is_empty() {
             println!("--- Current content of {path} ---");
             for (i, line) in text.lines().enumerate() {
@@ -228,9 +205,7 @@ fn handle_edit(
                 println!("\nEdit cancelled.");
                 return;
             }
-            Err(ReadlineError::Eof) => {
-                break;
-            }
+            Err(ReadlineError::Eof) => break,
             Err(e) => {
                 eprintln!("readline error: {e}");
                 return;
@@ -242,88 +217,20 @@ fn handle_edit(
         content.pop();
     }
 
-    // Create file if it doesn't exist
-    if fs.resolve_path(path).is_err() {
-        if let Err(e) = fs.touch(path, session.uid, session.gid) {
+    if db.stat(path).await.is_err() {
+        if let Err(e) = db.touch(path, session.uid, session.gid).await {
             eprintln!("{e}");
             return;
         }
     }
 
-    if let Err(e) = fs.write_file(path, content.into_bytes()) {
+    if let Err(e) = db.write_file(path, content.into_bytes()).await {
         eprintln!("{e}");
         return;
     }
 
-    // Auto-commit with author
-    match vcs.commit(fs, &format!("edit {path}"), &session.username) {
-        Ok(id) => println!("[{}] edit {path}", id.short_hex()),
+    match db.commit(&format!("edit {path}"), &session.username).await {
+        Ok(hash) => println!("[{hash}] edit {path}"),
         Err(e) => eprintln!("auto-commit failed: {e}"),
     }
-}
-
-fn execute_line(
-    line: &str,
-    fs: &mut VirtualFs,
-    vcs: &mut Vcs,
-    session: &mut Session,
-) -> Result<String, markdownfs::error::VfsError> {
-    let pipeline = parser::parse_pipeline(line);
-    if pipeline.commands.is_empty() {
-        return Ok(String::new());
-    }
-
-    // Check for VCS commands (not pipeable)
-    if let Some(first) = pipeline.commands.first() {
-        match first.program.as_str() {
-            "commit" => {
-                let msg = if first.args.is_empty() {
-                    "snapshot"
-                } else {
-                    &first.args.join(" ")
-                };
-                let id = vcs.commit(fs, msg, &session.username)?;
-                return Ok(format!("[{}] {msg}\n", id.short_hex()));
-            }
-            "log" => {
-                let commits = vcs.log();
-                if commits.is_empty() {
-                    return Ok("No commits yet.\n".to_string());
-                }
-                let mut output = String::new();
-                for c in commits {
-                    let time = chrono::DateTime::from_timestamp(c.timestamp as i64, 0)
-                        .map(|d| d.format("%Y-%m-%d %H:%M:%S").to_string())
-                        .unwrap_or_else(|| "???".to_string());
-                    output.push_str(&format!(
-                        "\x1b[33m{}\x1b[0m {} \x1b[36m{}\x1b[0m {}\n",
-                        c.id.short_hex(),
-                        time,
-                        c.author,
-                        c.message
-                    ));
-                }
-                return Ok(output);
-            }
-            "revert" => {
-                if first.args.is_empty() {
-                    return Err(markdownfs::error::VfsError::InvalidArgs {
-                        message: "revert: need commit hash prefix".to_string(),
-                    });
-                }
-                vcs.revert(fs, &first.args[0])?;
-                return Ok(format!("Reverted to {}\n", first.args[0]));
-            }
-            "status" => {
-                return vcs.status(fs);
-            }
-            _ => {}
-        }
-    }
-
-    cmd::execute_pipeline(&pipeline, fs, session)
-}
-
-fn dirs_home() -> Option<String> {
-    std::env::var("HOME").ok()
 }
