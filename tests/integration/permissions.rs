@@ -73,13 +73,8 @@ fn test_su_and_ownership() {
     let mut fs = VirtualFs::new();
     let mut session = Session::root();
 
+    // adduser now auto-creates /home/alice owned by alice
     let pipeline = parser::parse_pipeline("adduser alice");
-    cmd::execute_pipeline(&pipeline, &mut fs, &mut session).unwrap();
-    let pipeline = parser::parse_pipeline("mkdir home");
-    cmd::execute_pipeline(&pipeline, &mut fs, &mut session).unwrap();
-    let pipeline = parser::parse_pipeline("mkdir home/alice");
-    cmd::execute_pipeline(&pipeline, &mut fs, &mut session).unwrap();
-    let pipeline = parser::parse_pipeline("chown alice: home/alice");
     cmd::execute_pipeline(&pipeline, &mut fs, &mut session).unwrap();
 
     let pipeline = parser::parse_pipeline("su alice");

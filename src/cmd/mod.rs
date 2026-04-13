@@ -2,7 +2,7 @@ pub mod parser;
 
 use crate::auth::perms::{has_sticky_bit, Access};
 use crate::auth::session::Session;
-use crate::auth::{ROOT_UID, WHEEL_GID};
+use crate::auth::{ROOT_GID, ROOT_UID, WHEEL_GID};
 use crate::error::VfsError;
 use crate::fs::VirtualFs;
 use parser::{ParsedCommand, Pipeline};
@@ -763,8 +763,19 @@ fn cmd_adduser(
             message: "adduser: missing username".to_string(),
         });
     }
-    let (uid, _) = fs.registry.add_user(&args[0], false)?;
-    Ok(format!("User '{}' created (uid={uid})\n", args[0]))
+    let name = &args[0];
+    let (uid, _) = fs.registry.add_user(name, false)?;
+    let gid = fs.registry.get_user(uid).map(|u| u.groups.first().copied().unwrap_or(0)).unwrap_or(0);
+
+    let mut output = format!("User '{name}' created (uid={uid})\n");
+
+    let _ = fs.mkdir_p("/home", ROOT_UID, ROOT_GID);
+    let home_path = format!("/home/{name}");
+    if fs.mkdir(&home_path, uid, gid).is_ok() {
+        output.push_str(&format!("Home directory: /home/{name}\n"));
+    }
+
+    Ok(output)
 }
 
 fn cmd_addagent(

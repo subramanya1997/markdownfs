@@ -43,15 +43,19 @@ async fn main() {
     }
 
     let mut session = login_flow(&db, &mut rl).await;
-    println!(
-        "Logged in as '{}' (uid={}, gid={})\n",
-        session.username, session.uid, session.gid
-    );
-    println!("Type 'help' for available commands, 'exit' to quit.\n");
+    println!("\nType 'help' for available commands, 'exit' to quit.\n");
 
     loop {
         let pwd = db.pwd().await;
-        let prompt = format!("{}@markdownfs:{pwd} $ ", session.username);
+        let home_prefix = format!("/home/{}", session.username);
+        let display_pwd = if pwd == home_prefix {
+            "~".to_string()
+        } else if let Some(rest) = pwd.strip_prefix(&home_prefix) {
+            format!("~{rest}")
+        } else {
+            pwd
+        };
+        let prompt = format!("{}@markdownfs:{display_pwd} $ ", session.username);
         match rl.readline(&prompt) {
             Ok(line) => {
                 let line = line.trim();
@@ -106,7 +110,7 @@ async fn login_flow(db: &MarkdownDb, rl: &mut DefaultEditor) -> Session {
     let has_users = db.has_users().await;
 
     if !has_users {
-        println!("No users found. Let's create an admin account.");
+        println!("\nWelcome! Let's set up your account.");
         loop {
             match rl.readline("Admin username: ") {
                 Ok(name) => {
@@ -116,7 +120,14 @@ async fn login_flow(db: &MarkdownDb, rl: &mut DefaultEditor) -> Session {
                         continue;
                     }
                     match db.create_admin(&name).await {
-                        Ok(session) => return session,
+                        Ok(session) => {
+                            println!(
+                                "\nCreated admin '{}' (uid={}, groups=[{}, wheel])",
+                                session.username, session.uid, session.username
+                            );
+                            println!("Home directory: /home/{}", session.username);
+                            return session;
+                        }
                         Err(e) => eprintln!("{e}"),
                     }
                 }
@@ -138,7 +149,13 @@ async fn login_flow(db: &MarkdownDb, rl: &mut DefaultEditor) -> Session {
                         continue;
                     }
                     match db.login(&name).await {
-                        Ok(session) => return session,
+                        Ok(session) => {
+                            println!(
+                                "Logged in as '{}' (uid={}, gid={})",
+                                session.username, session.uid, session.gid
+                            );
+                            return session;
+                        }
                         Err(_) => eprintln!("Unknown user: {name}"),
                     }
                 }

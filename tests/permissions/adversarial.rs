@@ -63,13 +63,12 @@ fn many_users_isolated_homes() {
     let mut fs = VirtualFs::new();
     let mut root = Session::root();
 
-    run("mkdir home", &mut fs, &mut root);
-
     let user_count = 20;
     let mut sessions = Vec::new();
 
     for i in 0..user_count {
         let name = format!("user{i}");
+        // adduser now auto-creates /home/<name> owned by the user
         run(&format!("adduser {name}"), &mut fs, &mut root);
         let uid = fs.registry.lookup_uid(&name).unwrap();
         let user = fs.registry.get_user(uid).unwrap();
@@ -80,8 +79,6 @@ fn many_users_isolated_homes() {
             user.name.clone(),
         );
 
-        run(&format!("mkdir home/{name}"), &mut fs, &mut root);
-        run(&format!("chown {name}:{name} home/{name}"), &mut fs, &mut root);
         run(&format!("chmod 700 home/{name}"), &mut fs, &mut root);
 
         sessions.push(session);

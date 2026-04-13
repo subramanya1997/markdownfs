@@ -25,6 +25,25 @@ cargo build --release
 cargo run --release --bin markdownfs
 ```
 
+On first launch, you create an admin account. markdownfs sets up your home directory and drops you right in:
+
+```
+markdownfs v0.2.0 — Markdown Virtual File System
+
+Welcome! Let's set up your account.
+Admin username: alice
+
+Created admin 'alice' (uid=1, groups=[alice, wheel])
+Home directory: /home/alice
+
+Type 'help' for available commands, 'exit' to quit.
+
+alice@markdownfs:~ $ touch hello.md
+alice@markdownfs:~ $ write hello.md # Welcome to markdownfs
+alice@markdownfs:~ $ cat hello.md
+# Welcome to markdownfs
+```
+
 ### HTTP Server
 
 ```bash
@@ -51,6 +70,19 @@ Add to your MCP client config (e.g., Cursor `mcp.json`):
   }
 }
 ```
+
+## Documentation
+
+Detailed guides are available in the [`docs/`](docs/) folder:
+
+| Guide | Description |
+|---|---|
+| [Getting Started](docs/getting-started.md) | Install, build, first run walkthrough for CLI, HTTP, and MCP |
+| [User Management](docs/user-management.md) | Users, groups, permissions, chmod/chown, delegation, team setup |
+| [Filesystem Guide](docs/filesystem-guide.md) | Files, directories, search, pipes, symlinks |
+| [Version Control](docs/version-control.md) | Commit, log, revert, deduplication |
+| [HTTP API Guide](docs/http-api-guide.md) | Full REST endpoint reference with curl examples |
+| [MCP Guide](docs/mcp-guide.md) | AI agent integration, tool reference, setup for Cursor/Claude |
 
 ## HTTP API Reference
 
@@ -158,7 +190,7 @@ The MCP server exposes these tools for AI agents:
 
 | Command | Description |
 |---|---|
-| `adduser <name>` | Create user (admin only) |
+| `adduser <name>` | Create user with home directory (admin only) |
 | `addagent <name>` | Create agent with API token |
 | `deluser <name>` | Delete user (root only) |
 | `addgroup <name>` | Create group |
@@ -225,7 +257,7 @@ src/
 
 ## Performance
 
-~130x average speedup over native filesystem (in-memory, zero-copy reads, content-addressable dedup).
+~125x average speedup over native filesystem (in-memory, zero-copy reads, content-addressable dedup).
 
 ```bash
 cargo test --release --test perf -- --nocapture
@@ -234,7 +266,7 @@ cargo test --release --test perf_comparison -- --nocapture
 
 ## Testing
 
-233 tests across 5 suites:
+215 tests across 5 suites:
 
 ```bash
 cargo test                        # all tests

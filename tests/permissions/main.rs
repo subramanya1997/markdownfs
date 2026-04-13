@@ -96,17 +96,17 @@ fn setup() -> (VirtualFs, Session, Session, Session, Session, Session) {
     run("chown root:finance finance", &mut fs, &mut root);
     run("chmod 2770 finance", &mut fs, &mut root);
 
-    // /home directories
-    run("mkdir home", &mut fs, &mut root);
-    run("mkdir home/alice", &mut fs, &mut root);
+    // /home directories (adduser already creates /home and /home/<user>,
+    // so use mkdir -p to avoid AlreadyExists errors)
+    run("mkdir -p home/alice", &mut fs, &mut root);
     run("chown alice:alice home/alice", &mut fs, &mut root);
     run("chmod 750 home/alice", &mut fs, &mut root);
 
-    run("mkdir home/bob", &mut fs, &mut root);
+    run("mkdir -p home/bob", &mut fs, &mut root);
     run("chown bob:bob home/bob", &mut fs, &mut root);
     run("chmod 750 home/bob", &mut fs, &mut root);
 
-    run("mkdir home/carol", &mut fs, &mut root);
+    run("mkdir -p home/carol", &mut fs, &mut root);
     run("chown carol:carol home/carol", &mut fs, &mut root);
     run("chmod 750 home/carol", &mut fs, &mut root);
 

@@ -396,7 +396,7 @@ impl MarkdownDb {
     // ─── Auth helpers ───
 
     pub async fn login(&self, username: &str) -> Result<Session, VfsError> {
-        let guard = self.inner.read().await;
+        let mut guard = self.inner.write().await;
         let uid = guard
             .registry_lookup_uid(username)
             .ok_or_else(|| VfsError::AuthError {
@@ -407,12 +407,19 @@ impl MarkdownDb {
             .ok_or_else(|| VfsError::AuthError {
                 message: format!("user uid={uid} not found"),
             })?;
-        Ok(Session::new(
+        let session = Session::new(
             user.uid,
             user.groups.first().copied().unwrap_or(0),
             user.groups.clone(),
             user.name.clone(),
-        ))
+        );
+
+        let home_path = format!("/home/{username}");
+        if guard.fs.stat(&home_path).is_ok() {
+            let _ = guard.fs.cd(&home_path);
+        }
+
+        Ok(session)
     }
 
     pub async fn authenticate_token(&self, raw_token: &str) -> Result<Session, VfsError> {
@@ -454,12 +461,18 @@ impl MarkdownDb {
         let (uid, _) = guard.fs.registry.add_user(name, false)?;
         let _ = guard.fs.registry.usermod_add_group(name, "wheel");
         let user = guard.fs.registry.get_user(uid).unwrap();
-        let session = Session::new(
-            user.uid,
-            user.groups.first().copied().unwrap_or(0),
-            user.groups.clone(),
-            user.name.clone(),
+        let gid = user.groups.first().copied().unwrap_or(0);
+        let session = Session::new(uid, gid, user.groups.clone(), user.name.clone());
+
+        let _ = guard.fs.mkdir_p(
+            "/home",
+            crate::auth::ROOT_UID,
+            crate::auth::ROOT_GID,
         );
+        let home_path = format!("/home/{name}");
+        let _ = guard.fs.mkdir(&home_path, uid, gid);
+        let _ = guard.fs.cd(&home_path);
+
         drop(guard);
         self.mark_dirty();
         Ok(session)

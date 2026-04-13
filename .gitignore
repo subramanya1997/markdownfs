@@ -1,1 +1,6 @@
 /target
+.vfs/
+*.swp
+*.swo
+*~
+.DS_Store
