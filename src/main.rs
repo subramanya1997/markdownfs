@@ -1,5 +1,5 @@
 use markdownfs::auth::session::Session;
-use markdownfs::config::Config;
+use markdownfs::config::{CompatibilityTarget, Config};
 use markdownfs::db::MarkdownDb;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
@@ -93,8 +93,11 @@ async fn main() {
 
     match db.save().await {
         Ok(()) => {
-            let (_, dir) = db.persist_info();
-            println!("State saved to {}/", dir.display());
+            let info = db.persist_info();
+            match info.location {
+                Some(dir) => println!("State saved via {} to {}/", info.backend, dir.display()),
+                None => println!("State saved via {}", info.backend),
+            }
         }
         Err(e) => eprintln!("Warning: failed to save state: {e}"),
     }
@@ -184,7 +187,7 @@ async fn handle_edit(
         return;
     }
 
-    if !path.ends_with(".md") {
+    if db.config().compatibility_target != CompatibilityTarget::Posix && !path.ends_with(".md") {
         eprintln!("markdownfs: only .md files are supported: '{path}'");
         return;
     }

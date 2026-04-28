@@ -2,6 +2,8 @@
 
 A high-performance, concurrent markdown database built in Rust. Supports Unix-like commands, Git-style versioning with content-addressable storage, disk persistence, multi-user permissioning, HTTP/REST API, and MCP (Model Context Protocol) for AI agents.
 
+`markdownfs` is also a strong fit for **agent workspace** use cases: durable markdown memory, inspectable artifacts, search, permissions, commits, and rollback in one shared surface.
+
 Only Markdown (`.md`) files are supported by design.
 
 ## Access Methods
@@ -13,6 +15,7 @@ markdownfs can be used three ways:
 | **CLI/REPL** | `markdownfs` | Interactive terminal use |
 | **HTTP/REST API** | `markdownfs-server` | Web apps, services, any HTTP client |
 | **MCP Server** | `markdownfs-mcp` | AI agents (Cursor, Claude, etc.) |
+| **Remote-first CLI** | `mdfs` | Thin client over the HTTP/gateway surface |
 
 All three share the same concurrent core (`MarkdownDb`) with `tokio::RwLock` for safe multi-reader/single-writer access.
 
@@ -83,6 +86,21 @@ Detailed guides are available in the [`docs/`](docs/) folder:
 | [Version Control](docs/version-control.md) | Commit, log, revert, deduplication |
 | [HTTP API Guide](docs/http-api-guide.md) | Full REST endpoint reference with curl examples |
 | [MCP Guide](docs/mcp-guide.md) | AI agent integration, tool reference, setup for Cursor/Claude |
+| [Agent Workspace Positioning](docs/agent-workspace-positioning.md) | Messaging, category, narrative, and competitive framing |
+| [Agent Workspace Demo](docs/agent-workspace-demo.md) | Runnable 7-minute demo using CLI tools and the HTTP API |
+| [Demo Readiness](docs/demo-readiness.md) | Which gaps matter before the first polished demo |
+| [CLI Cloud Bridge](docs/cli-cloud-bridge.md) | `mdfs` CLI vision, hosted gateway, and cloud execution targets |
+| [Semantic Index](docs/semantic-index.md) | Vector-based retrieval as a derived index over markdown workspaces |
+| [Execution Roadmap](docs/execution-roadmap.md) | How to evolve from workspace layer to execution layer |
+| [Cloudflare Deployment](deploy/cloudflare/README.md) | Containerized gateway packaging for a Cloudflare-first path |
+
+## Examples
+
+Example demo content lives in [`examples/`](examples/):
+
+| Example | Description |
+|---|---|
+| [Incident Workspace](examples/incident-workspace/README.md) | Seed markdown files for the agent-workspace demo |
 
 ## HTTP API Reference
 

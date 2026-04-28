@@ -1,0 +1,25 @@
+{
+  "name": "markdownfs-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-24",
+  "containers": [
+    {
+      "class_name": "MarkdownFsGateway",
+      "image": "./Dockerfile"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MarkdownFsGateway",
+        "class_name": "MarkdownFsGateway"
+      }
+    ]
+  },
+  "vars": {
+    "MARKDOWNFS_LISTEN": "0.0.0.0:8080",
+    "MARKDOWNFS_DATA_DIR": "/data",
+    "MARKDOWNFS_R2_REGION": "auto",
+    "MARKDOWNFS_R2_PREFIX": "markdownfs"
+  }
+}

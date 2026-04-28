@@ -33,5 +33,6 @@ mod symlinks;
 mod vcs;
 mod persist;
 mod permissions;
+mod posix;
 mod edge_cases;
 mod workflows;

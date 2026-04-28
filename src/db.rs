@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{Notify, RwLock};
@@ -7,8 +6,10 @@ use crate::auth::session::Session;
 use crate::auth::{Gid, Uid};
 use crate::config::Config;
 use crate::error::VfsError;
-use crate::fs::{GrepResult, LsEntry, StatInfo, VirtualFs};
-use crate::persist::PersistManager;
+use crate::fs::{FsOptions, GrepResult, HandleId, LsEntry, StatInfo, VirtualFs};
+use crate::persist::{
+    LocalStateBackend, MemoryPersistenceBackend, PersistenceBackend, PersistenceInfo,
+};
 use crate::store::commit::CommitObject;
 use crate::vcs::Vcs;
 
@@ -24,7 +25,7 @@ struct DbInner {
 #[derive(Clone)]
 pub struct MarkdownDb {
     inner: Arc<RwLock<DbInner>>,
-    persist: Arc<PersistManager>,
+    persist: Arc<dyn PersistenceBackend>,
     config: Arc<Config>,
     write_count: Arc<AtomicU64>,
     save_notify: Arc<Notify>,
@@ -32,33 +33,42 @@ pub struct MarkdownDb {
 
 impl MarkdownDb {
     pub fn open(config: Config) -> Result<Self, VfsError> {
-        let persist = PersistManager::new(&config.data_dir);
+        let persist: Arc<dyn PersistenceBackend> = Arc::new(LocalStateBackend::new(&config.data_dir));
+        Ok(Self::open_with_backend(config, persist))
+    }
 
-        let (fs, vcs) = if persist.state_exists() {
-            persist.load()?
-        } else {
-            (VirtualFs::new(), Vcs::new())
+    pub fn open_with_backend(config: Config, persist: Arc<dyn PersistenceBackend>) -> Self {
+        let options = FsOptions {
+            compatibility_target: config.compatibility_target,
         };
+        let (fs, vcs) = persist
+            .load()
+            .ok()
+            .flatten()
+            .map(|state| (state.fs, state.vcs))
+            .unwrap_or_else(|| (VirtualFs::new_with_options(options), Vcs::new()));
 
-        let db = MarkdownDb {
+        MarkdownDb {
             inner: Arc::new(RwLock::new(DbInner { fs, vcs })),
-            persist: Arc::new(persist),
+            persist,
             config: Arc::new(config),
             write_count: Arc::new(AtomicU64::new(0)),
             save_notify: Arc::new(Notify::new()),
-        };
-
-        Ok(db)
+        }
     }
 
     pub fn open_memory() -> Self {
+        let config = Config::from_env();
+        let options = FsOptions {
+            compatibility_target: config.compatibility_target,
+        };
         MarkdownDb {
             inner: Arc::new(RwLock::new(DbInner {
-                fs: VirtualFs::new(),
+                fs: VirtualFs::new_with_options(options),
                 vcs: Vcs::new(),
             })),
-            persist: Arc::new(PersistManager::new(Path::new("/dev/null"))),
-            config: Arc::new(Config::from_env()),
+            persist: Arc::new(MemoryPersistenceBackend),
+            config: Arc::new(config),
             write_count: Arc::new(AtomicU64::new(0)),
             save_notify: Arc::new(Notify::new()),
         }
@@ -104,8 +114,8 @@ impl MarkdownDb {
         &self.config
     }
 
-    pub fn persist_info(&self) -> (bool, std::path::PathBuf) {
-        (self.persist.state_exists(), self.persist.data_dir().to_path_buf())
+    pub fn persist_info(&self) -> PersistenceInfo {
+        self.persist.info()
     }
 
     // ─── Read operations (take read lock) ───
@@ -280,6 +290,84 @@ impl MarkdownDb {
         drop(guard);
         self.mark_dirty();
         Ok(())
+    }
+
+    pub async fn link(&self, target: &str, link_path: &str) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.link(target, link_path)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub async fn readlink(&self, path: &str) -> Result<String, VfsError> {
+        let guard = self.inner.read().await;
+        guard.fs.readlink(path)
+    }
+
+    pub async fn truncate(&self, path: &str, size: usize) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.truncate(path, size)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub async fn read_file_at(
+        &self,
+        path: &str,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.read_file_at(path, offset, size)
+    }
+
+    pub async fn write_file_at(
+        &self,
+        path: &str,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<usize, VfsError> {
+        let end = offset.saturating_add(data.len());
+        if end > self.config.max_file_size {
+            return Err(VfsError::InvalidArgs {
+                message: format!("write exceeds max file size {}", self.config.max_file_size),
+            });
+        }
+        let mut guard = self.inner.write().await;
+        let written = guard.fs.write_file_at(path, offset, data)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(written)
+    }
+
+    pub async fn open_file(&self, path: &str, writable: bool) -> Result<HandleId, VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.open(path, writable)
+    }
+
+    pub async fn open_dir(&self, path: &str) -> Result<HandleId, VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.opendir(path)
+    }
+
+    pub async fn read_handle(&self, handle: HandleId, size: usize) -> Result<Vec<u8>, VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.read_handle(handle, size)
+    }
+
+    pub async fn write_handle(&self, handle: HandleId, data: &[u8]) -> Result<usize, VfsError> {
+        let mut guard = self.inner.write().await;
+        let written = guard.fs.write_handle(handle, data)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(written)
+    }
+
+    pub async fn release_handle(&self, handle: HandleId) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        guard.fs.release_handle(handle)
     }
 
     pub async fn commit(&self, message: &str, author: &str) -> Result<String, VfsError> {
@@ -491,6 +579,10 @@ impl MarkdownDb {
     pub async fn inode_count(&self) -> usize {
         let guard = self.inner.read().await;
         guard.fs.all_inodes().len()
+    }
+
+    pub fn snapshot_fs(&self) -> VirtualFs {
+        self.inner.blocking_read().fs.clone()
     }
 }
 

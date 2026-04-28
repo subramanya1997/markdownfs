@@ -4,22 +4,61 @@ use crate::auth::perms::{has_setgid, Access};
 use crate::auth::registry::UserRegistry;
 use crate::auth::session::Session;
 use crate::auth::{Gid, Uid, ROOT_GID, ROOT_UID};
+use crate::config::CompatibilityTarget;
 use crate::error::VfsError;
 use inode::{Inode, InodeId, InodeKind};
 use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+pub type HandleId = u64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FsOptions {
+    pub compatibility_target: CompatibilityTarget,
+}
+
+impl Default for FsOptions {
+    fn default() -> Self {
+        Self {
+            compatibility_target: CompatibilityTarget::Markdown,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct OpenHandle {
+    inode_id: InodeId,
+    cursor: usize,
+    writable: bool,
+    directory: bool,
+}
+
+#[derive(Clone)]
 pub struct VirtualFs {
     inodes: HashMap<InodeId, Inode>,
     root: InodeId,
     cwd: InodeId,
     next_id: InodeId,
     cwd_path: Vec<(String, InodeId)>,
+    options: FsOptions,
+    next_handle: HandleId,
+    handles: HashMap<HandleId, OpenHandle>,
+    pending_delete: HashSet<InodeId>,
     pub registry: UserRegistry,
 }
 
 impl VirtualFs {
     pub fn new() -> Self {
+        Self::new_with_options(FsOptions::default())
+    }
+
+    pub fn new_posix() -> Self {
+        Self::new_with_options(FsOptions {
+            compatibility_target: CompatibilityTarget::Posix,
+        })
+    }
+
+    pub fn new_with_options(options: FsOptions) -> Self {
         let root_id = 0;
         let root = Inode::new_dir(root_id, ROOT_UID, ROOT_GID);
         let mut inodes = HashMap::new();
@@ -30,6 +69,10 @@ impl VirtualFs {
             cwd: root_id,
             next_id: 1,
             cwd_path: Vec::new(),
+            options,
+            next_handle: 1,
+            handles: HashMap::new(),
+            pending_delete: HashSet::new(),
             registry: UserRegistry::new(),
         }
     }
@@ -38,6 +81,20 @@ impl VirtualFs {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    fn alloc_handle_id(&mut self) -> HandleId {
+        let id = self.next_handle;
+        self.next_handle += 1;
+        id
+    }
+
+    pub fn options(&self) -> FsOptions {
+        self.options
+    }
+
+    pub fn compatibility_target(&self) -> CompatibilityTarget {
+        self.options.compatibility_target
     }
 
     pub fn pwd(&self) -> String {
@@ -250,6 +307,50 @@ impl VirtualFs {
         caller_gid
     }
 
+    fn validate_regular_path(&self, path: &str) -> Result<(), VfsError> {
+        if self.compatibility_target() == CompatibilityTarget::Posix {
+            return Ok(());
+        }
+        validate_markdown_filename(path)
+    }
+
+    fn mark_accessed(&mut self, id: InodeId) -> Result<(), VfsError> {
+        let inode = self.get_inode_mut(id)?;
+        inode.touch_access();
+        Ok(())
+    }
+
+    fn unlink_inode_if_needed(&mut self, id: InodeId) {
+        let open = self
+            .handles
+            .values()
+            .any(|handle| handle.inode_id == id);
+        if let Some(inode) = self.inodes.get(&id) {
+            if inode.nlink == 0 {
+                if open {
+                    self.pending_delete.insert(id);
+                } else {
+                    self.pending_delete.remove(&id);
+                    self.inodes.remove(&id);
+                }
+            }
+        }
+    }
+
+    fn release_orphan_if_needed(&mut self, id: InodeId) {
+        if !self.pending_delete.contains(&id) {
+            return;
+        }
+        let still_open = self
+            .handles
+            .values()
+            .any(|handle| handle.inode_id == id);
+        if !still_open {
+            self.pending_delete.remove(&id);
+            self.inodes.remove(&id);
+        }
+    }
+
     // ───── Commands ─────
 
     pub fn ls(&self, path: Option<&str>) -> Result<Vec<LsEntry>, VfsError> {
@@ -365,6 +466,9 @@ impl VirtualFs {
 
         self.inodes.insert(new_id, new_dir);
         self.dir_entries_mut(parent_id)?.insert(name, new_id);
+        let parent = self.get_inode_mut(parent_id)?;
+        parent.nlink += 1;
+        parent.touch_change();
         Ok(())
     }
 
@@ -393,6 +497,9 @@ impl VirtualFs {
                         self.inodes.insert(new_id, new_dir);
                         self.dir_entries_mut(current)?
                             .insert(name.to_string(), new_id);
+                        let parent = self.get_inode_mut(current)?;
+                        parent.nlink += 1;
+                        parent.touch_change();
                         current = new_id;
                     }
                 }
@@ -402,14 +509,11 @@ impl VirtualFs {
     }
 
     pub fn touch(&mut self, path: &str, uid: Uid, gid: Gid) -> Result<(), VfsError> {
-        validate_markdown_filename(path)?;
+        self.validate_regular_path(path)?;
 
         if let Ok(id) = self.resolve_path(path) {
             let inode = self.get_inode_mut(id)?;
-            inode.modified = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
+            inode.touch_modify();
             return Ok(());
         }
 
@@ -420,6 +524,32 @@ impl VirtualFs {
         self.inodes.insert(new_id, new_file);
         self.dir_entries_mut(parent_id)?.insert(name, new_id);
         Ok(())
+    }
+
+    pub fn create_file(
+        &mut self,
+        path: &str,
+        uid: Uid,
+        gid: Gid,
+        mode: Option<u16>,
+    ) -> Result<InodeId, VfsError> {
+        self.validate_regular_path(path)?;
+        if self.resolve_path(path).is_ok() {
+            return Err(VfsError::AlreadyExists {
+                path: path.to_string(),
+            });
+        }
+
+        let (parent_id, name) = self.resolve_parent(path)?;
+        let effective_gid = self.effective_gid(parent_id, gid);
+        let new_id = self.alloc_id();
+        let mut new_file = Inode::new_file(new_id, uid, effective_gid);
+        if let Some(mode) = mode {
+            new_file.mode = mode;
+        }
+        self.inodes.insert(new_id, new_file);
+        self.dir_entries_mut(parent_id)?.insert(name, new_id);
+        Ok(new_id)
     }
 
     pub fn cat(&self, path: &str) -> Result<&[u8], VfsError> {
@@ -439,16 +569,13 @@ impl VirtualFs {
     }
 
     pub fn write_file(&mut self, path: &str, content: Vec<u8>) -> Result<(), VfsError> {
-        validate_markdown_filename(path)?;
+        self.validate_regular_path(path)?;
         let id = self.resolve_path(path)?;
         let inode = self.get_inode_mut(id)?;
         match &mut inode.kind {
             InodeKind::File { content: c, .. } => {
                 *c = content;
-                inode.modified = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
+                inode.touch_modify();
                 Ok(())
             }
             InodeKind::Directory { .. } => Err(VfsError::IsDirectory {
@@ -457,6 +584,67 @@ impl VirtualFs {
             InodeKind::Symlink { target } => {
                 let target = target.clone();
                 self.write_file(&target, content)
+            }
+        }
+    }
+
+    pub fn read_file_at(
+        &mut self,
+        path: &str,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, VfsError> {
+        let id = self.resolve_path(path)?;
+        self.read_inode_at(id, offset, size)
+    }
+
+    pub fn write_file_at(
+        &mut self,
+        path: &str,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<usize, VfsError> {
+        self.validate_regular_path(path)?;
+        let id = self.resolve_path(path)?;
+        let inode = self.get_inode_mut(id)?;
+        match &mut inode.kind {
+            InodeKind::File { content } => {
+                if offset > content.len() {
+                    content.resize(offset, 0);
+                }
+                let end = offset.saturating_add(data.len());
+                if end > content.len() {
+                    content.resize(end, 0);
+                }
+                content[offset..end].copy_from_slice(data);
+                inode.touch_modify();
+                Ok(data.len())
+            }
+            InodeKind::Directory { .. } => Err(VfsError::IsDirectory {
+                path: path.to_string(),
+            }),
+            InodeKind::Symlink { target } => {
+                let target = target.clone();
+                self.write_file_at(&target, offset, data)
+            }
+        }
+    }
+
+    pub fn truncate(&mut self, path: &str, size: usize) -> Result<(), VfsError> {
+        let id = self.resolve_path(path)?;
+        let inode = self.get_inode_mut(id)?;
+        match &mut inode.kind {
+            InodeKind::File { content } => {
+                content.resize(size, 0);
+                inode.touch_modify();
+                Ok(())
+            }
+            InodeKind::Directory { .. } => Err(VfsError::IsDirectory {
+                path: path.to_string(),
+            }),
+            InodeKind::Symlink { target } => {
+                let target = target.clone();
+                self.truncate(&target, size)
             }
         }
     }
@@ -472,7 +660,10 @@ impl VirtualFs {
 
         let (parent_id, name) = self.resolve_parent(path)?;
         self.dir_entries_mut(parent_id)?.remove(&name);
-        self.inodes.remove(&id);
+        let inode = self.get_inode_mut(id)?;
+        inode.nlink = inode.nlink.saturating_sub(1);
+        inode.touch_change();
+        self.unlink_inode_if_needed(id);
         Ok(())
     }
 
@@ -502,6 +693,9 @@ impl VirtualFs {
 
         let (parent_id, name) = self.resolve_parent(path)?;
         self.dir_entries_mut(parent_id)?.remove(&name);
+        let parent = self.get_inode_mut(parent_id)?;
+        parent.nlink = parent.nlink.saturating_sub(1);
+        parent.touch_change();
         self.inodes.remove(&id);
         Ok(())
     }
@@ -514,33 +708,49 @@ impl VirtualFs {
             });
         }
 
-        let ids_to_remove = self.collect_subtree(id);
         let (parent_id, name) = self.resolve_parent(path)?;
         self.dir_entries_mut(parent_id)?.remove(&name);
-        for rid in ids_to_remove {
-            self.inodes.remove(&rid);
-        }
+        self.remove_inode_recursive(id)?;
+        let parent = self.get_inode_mut(parent_id)?;
+        parent.touch_change();
         Ok(())
     }
 
-    fn collect_subtree(&self, id: InodeId) -> Vec<InodeId> {
-        let mut result = vec![id];
-        if let Ok(inode) = self.get_inode(id) {
-            if let InodeKind::Directory { entries } = &inode.kind {
-                for &child_id in entries.values() {
-                    result.extend(self.collect_subtree(child_id));
-                }
-            }
+    fn remove_inode_recursive(&mut self, id: InodeId) -> Result<(), VfsError> {
+        let child_entries = match &self.get_inode(id)?.kind {
+            InodeKind::Directory { entries } => entries.values().copied().collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+
+        for child_id in child_entries {
+            self.remove_inode_recursive(child_id)?;
         }
-        result
+
+        let nlink = self.get_inode(id)?.nlink;
+        if nlink > 0 {
+            let inode = self.get_inode_mut(id)?;
+            inode.nlink = inode.nlink.saturating_sub(1);
+            inode.touch_change();
+        }
+        self.unlink_inode_if_needed(id);
+        Ok(())
     }
 
     pub fn mv(&mut self, src: &str, dst: &str) -> Result<(), VfsError> {
+        self.rename(src, dst)
+    }
+
+    pub fn rename(&mut self, src: &str, dst: &str) -> Result<(), VfsError> {
         let src_id = self.resolve_path(src)?;
+        if src_id == self.root {
+            return Err(VfsError::InvalidPath {
+                path: "cannot rename root".to_string(),
+            });
+        }
 
         if self.get_inode(src_id)?.is_file() {
             let dst_name = dst.rsplit('/').next().unwrap_or(dst);
-            validate_markdown_filename(dst_name)?;
+            self.validate_regular_path(dst_name)?;
         }
 
         let (src_parent, src_name) = self.resolve_parent(src)?;
@@ -549,13 +759,19 @@ impl VirtualFs {
             if self.get_inode(dst_id)?.is_dir() {
                 self.dir_entries_mut(src_parent)?.remove(&src_name);
                 self.dir_entries_mut(dst_id)?.insert(src_name, src_id);
+                let inode = self.get_inode_mut(src_id)?;
+                inode.touch_change();
                 return Ok(());
+            } else {
+                self.rm(dst)?;
             }
         }
 
         let (dst_parent, dst_name) = self.resolve_parent(dst)?;
         self.dir_entries_mut(src_parent)?.remove(&src_name);
         self.dir_entries_mut(dst_parent)?.insert(dst_name, src_id);
+        let inode = self.get_inode_mut(src_id)?;
+        inode.touch_change();
         Ok(())
     }
 
@@ -571,7 +787,7 @@ impl VirtualFs {
 
         let dst_name = dst.rsplit('/').next().unwrap_or(dst);
         if src_inode.is_file() {
-            validate_markdown_filename(dst_name)?;
+            self.validate_regular_path(dst_name)?;
         }
 
         let (parent_id, name) = if let Ok(dst_id) = self.resolve_path(dst) {
@@ -590,6 +806,8 @@ impl VirtualFs {
         new_inode.id = new_id;
         new_inode.uid = uid; // Copy is owned by the caller
         new_inode.gid = self.effective_gid(parent_id, gid);
+        new_inode.nlink = 1;
+        new_inode.touch_change();
         self.inodes.insert(new_id, new_inode);
         self.dir_entries_mut(parent_id)?.insert(name, new_id);
         Ok(())
@@ -609,8 +827,17 @@ impl VirtualFs {
             mode: inode.mode,
             uid: inode.uid,
             gid: inode.gid,
-            created: inode.created,
-            modified: inode.modified,
+            nlink: inode.nlink,
+            block_size: inode.block_size,
+            blocks: inode.blocks(),
+            created: inode.created_at.secs,
+            modified: inode.modified_at.secs,
+            accessed: inode.accessed_at.secs,
+            changed: inode.changed_at.secs,
+            created_nanos: inode.created_at.nanos,
+            modified_nanos: inode.modified_at.nanos,
+            accessed_nanos: inode.accessed_at.nanos,
+            changed_nanos: inode.changed_at.nanos,
         })
     }
 
@@ -618,6 +845,7 @@ impl VirtualFs {
         let id = self.resolve_path(path)?;
         let inode = self.get_inode_mut(id)?;
         inode.mode = mode;
+        inode.touch_change();
         Ok(())
     }
 
@@ -626,6 +854,7 @@ impl VirtualFs {
         let inode = self.get_inode_mut(id)?;
         inode.uid = uid;
         inode.gid = gid;
+        inode.touch_change();
         Ok(())
     }
 
@@ -644,6 +873,169 @@ impl VirtualFs {
         self.inodes.insert(new_id, symlink);
         self.dir_entries_mut(parent_id)?.insert(name, new_id);
         Ok(())
+    }
+
+    pub fn link(&mut self, target: &str, link_path: &str) -> Result<(), VfsError> {
+        let target_id = self.resolve_path(target)?;
+        if self.get_inode(target_id)?.is_dir() {
+            return Err(VfsError::NotSupported {
+                message: "hard links to directories".to_string(),
+            });
+        }
+        let (parent_id, name) = self.resolve_parent(link_path)?;
+        if self.dir_entries(parent_id)?.contains_key(&name) {
+            return Err(VfsError::AlreadyExists {
+                path: link_path.to_string(),
+            });
+        }
+        self.dir_entries_mut(parent_id)?.insert(name, target_id);
+        let inode = self.get_inode_mut(target_id)?;
+        inode.nlink += 1;
+        inode.touch_change();
+        Ok(())
+    }
+
+    pub fn readlink(&self, path: &str) -> Result<String, VfsError> {
+        let id = self.resolve_path(path)?;
+        let inode = self.get_inode(id)?;
+        match &inode.kind {
+            InodeKind::Symlink { target } => Ok(target.clone()),
+            _ => Err(VfsError::InvalidArgs {
+                message: format!("not a symlink: {path}"),
+            }),
+        }
+    }
+
+    pub fn open(&mut self, path: &str, writable: bool) -> Result<HandleId, VfsError> {
+        let inode_id = self.resolve_path(path)?;
+        let directory = self.get_inode(inode_id)?.is_dir();
+        let handle_id = self.alloc_handle_id();
+        self.handles.insert(
+            handle_id,
+            OpenHandle {
+                inode_id,
+                cursor: 0,
+                writable,
+                directory,
+            },
+        );
+        self.mark_accessed(inode_id)?;
+        Ok(handle_id)
+    }
+
+    pub fn opendir(&mut self, path: &str) -> Result<HandleId, VfsError> {
+        let inode_id = self.resolve_path(path)?;
+        if !self.get_inode(inode_id)?.is_dir() {
+            return Err(VfsError::NotDirectory {
+                path: path.to_string(),
+            });
+        }
+        self.open(path, false)
+    }
+
+    pub fn release_handle(&mut self, handle: HandleId) -> Result<(), VfsError> {
+        let open = self
+            .handles
+            .remove(&handle)
+            .ok_or(VfsError::InvalidHandle { handle })?;
+        self.release_orphan_if_needed(open.inode_id);
+        Ok(())
+    }
+
+    pub fn read_handle(&mut self, handle: HandleId, size: usize) -> Result<Vec<u8>, VfsError> {
+        let (inode_id, cursor) = {
+            let open = self
+                .handles
+                .get(&handle)
+                .ok_or(VfsError::InvalidHandle { handle })?;
+            if open.directory {
+                return Err(VfsError::IsDirectory {
+                    path: format!("<handle {handle}>"),
+                });
+            }
+            (open.inode_id, open.cursor)
+        };
+
+        let data = self.read_inode_at(inode_id, cursor, size)?;
+        if let Some(open) = self.handles.get_mut(&handle) {
+            open.cursor = open.cursor.saturating_add(data.len());
+        }
+        Ok(data)
+    }
+
+    pub fn write_handle(&mut self, handle: HandleId, data: &[u8]) -> Result<usize, VfsError> {
+        let (inode_id, cursor, writable) = {
+            let open = self
+                .handles
+                .get(&handle)
+                .ok_or(VfsError::InvalidHandle { handle })?;
+            (open.inode_id, open.cursor, open.writable)
+        };
+        if !writable {
+            return Err(VfsError::PermissionDenied {
+                path: format!("<handle {handle}>"),
+            });
+        }
+        let written = self.write_inode_at(inode_id, cursor, data)?;
+        if let Some(open) = self.handles.get_mut(&handle) {
+            open.cursor = open.cursor.saturating_add(written);
+        }
+        Ok(written)
+    }
+
+    fn write_inode_at(
+        &mut self,
+        inode_id: InodeId,
+        offset: usize,
+        data: &[u8],
+    ) -> Result<usize, VfsError> {
+        let inode = self.get_inode_mut(inode_id)?;
+        match &mut inode.kind {
+            InodeKind::File { content } => {
+                if offset > content.len() {
+                    content.resize(offset, 0);
+                }
+                let end = offset.saturating_add(data.len());
+                if end > content.len() {
+                    content.resize(end, 0);
+                }
+                content[offset..end].copy_from_slice(data);
+                inode.touch_modify();
+                Ok(data.len())
+            }
+            InodeKind::Directory { .. } => Err(VfsError::IsDirectory {
+                path: format!("<inode {inode_id}>"),
+            }),
+            InodeKind::Symlink { target } => {
+                let target = target.clone();
+                self.write_file_at(&target, offset, data)
+            }
+        }
+    }
+
+    fn read_inode_at(
+        &mut self,
+        inode_id: InodeId,
+        offset: usize,
+        size: usize,
+    ) -> Result<Vec<u8>, VfsError> {
+        let inode = self.get_inode_mut(inode_id)?;
+        match &mut inode.kind {
+            InodeKind::File { content } => {
+                let start = offset.min(content.len());
+                let end = start.saturating_add(size).min(content.len());
+                let out = content[start..end].to_vec();
+                inode.touch_access();
+                Ok(out)
+            }
+            InodeKind::Directory { .. } => Err(VfsError::IsDirectory {
+                path: format!("<inode {inode_id}>"),
+            }),
+            InodeKind::Symlink { target } => {
+                let target = target.clone();
+                self.read_file_at(&target, offset, size)
+            }
+        }
     }
 
     pub fn tree(
@@ -891,6 +1283,7 @@ impl VirtualFs {
         cwd: InodeId,
         next_id: InodeId,
         cwd_path: Vec<(String, InodeId)>,
+        options: FsOptions,
         registry: UserRegistry,
     ) -> Self {
         VirtualFs {
@@ -899,6 +1292,10 @@ impl VirtualFs {
             cwd,
             next_id,
             cwd_path,
+            options,
+            next_handle: 1,
+            handles: HashMap::new(),
+            pending_delete: HashSet::new(),
             registry,
         }
     }
@@ -936,7 +1333,7 @@ pub struct LsEntry {
     pub modified: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StatInfo {
     pub inode_id: InodeId,
     pub kind: &'static str,
@@ -944,8 +1341,17 @@ pub struct StatInfo {
     pub mode: u16,
     pub uid: u32,
     pub gid: u32,
+    pub nlink: u64,
+    pub block_size: u64,
+    pub blocks: u64,
     pub created: u64,
     pub modified: u64,
+    pub accessed: u64,
+    pub changed: u64,
+    pub created_nanos: u32,
+    pub modified_nanos: u32,
+    pub accessed_nanos: u32,
+    pub changed_nanos: u32,
 }
 
 #[derive(Debug, Clone)]

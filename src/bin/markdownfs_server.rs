@@ -30,6 +30,9 @@ async fn main() {
     tracing::info!("endpoints:");
     tracing::info!("  GET    /health          — health check");
     tracing::info!("  POST   /auth/login      — login (JSON: {{\"username\": \"...\" }})");
+    tracing::info!("  GET    /workspaces      — list hosted workspaces");
+    tracing::info!("  POST   /workspaces      — create hosted workspace");
+    tracing::info!("  POST   /workspaces/{{id}}/tokens — issue workspace-scoped token");
     tracing::info!("  GET    /fs/{{path}}      — read file or list directory");
     tracing::info!("  PUT    /fs/{{path}}      — write file or create directory");
     tracing::info!("  DELETE /fs/{{path}}      — delete file or directory");

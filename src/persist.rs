@@ -1,7 +1,8 @@
 use crate::auth::registry::UserRegistry;
+use crate::config::CompatibilityTarget;
 use crate::error::VfsError;
 use crate::fs::inode::{Inode, InodeId};
-use crate::fs::VirtualFs;
+use crate::fs::{FsOptions, VirtualFs};
 use crate::store::blob::BlobStore;
 use crate::store::commit::CommitObject;
 use crate::store::ObjectId;
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 const VFS_DIR: &str = ".vfs";
 const STATE_FILE: &str = "state.bin";
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// Complete persisted state of the VFS + VCS.
 #[derive(Serialize, Deserialize)]
@@ -30,6 +31,7 @@ struct FsState {
     cwd: InodeId,
     next_id: InodeId,
     cwd_path: Vec<(String, InodeId)>,
+    compatibility_target: CompatibilityTarget,
     registry: UserRegistry,
 }
 
@@ -60,8 +62,94 @@ struct FsStateV1 {
     // No registry in V1
 }
 
+#[derive(Deserialize)]
+struct PersistedStateV2 {
+    version: u32,
+    fs_state: FsStateV2,
+    vcs_state: VcsState,
+}
+
+#[derive(Deserialize)]
+struct FsStateV2 {
+    inodes: HashMap<InodeId, Inode>,
+    root: InodeId,
+    cwd: InodeId,
+    next_id: InodeId,
+    cwd_path: Vec<(String, InodeId)>,
+    registry: UserRegistry,
+}
+
 pub struct PersistManager {
     base_dir: PathBuf,
+}
+
+pub struct LoadedState {
+    pub fs: VirtualFs,
+    pub vcs: Vcs,
+}
+
+#[derive(Debug, Clone)]
+pub struct PersistenceInfo {
+    pub backend: &'static str,
+    pub location: Option<PathBuf>,
+}
+
+pub trait PersistenceBackend: Send + Sync {
+    fn load(&self) -> Result<Option<LoadedState>, VfsError>;
+    fn save(&self, vfs: &VirtualFs, vcs: &Vcs) -> Result<(), VfsError>;
+    fn info(&self) -> PersistenceInfo;
+}
+
+pub struct LocalStateBackend {
+    manager: PersistManager,
+}
+
+impl LocalStateBackend {
+    pub fn new(base_dir: &Path) -> Self {
+        Self {
+            manager: PersistManager::new(base_dir),
+        }
+    }
+}
+
+pub struct MemoryPersistenceBackend;
+
+impl PersistenceBackend for LocalStateBackend {
+    fn load(&self) -> Result<Option<LoadedState>, VfsError> {
+        if !self.manager.state_exists() {
+            return Ok(None);
+        }
+        let (fs, vcs) = self.manager.load()?;
+        Ok(Some(LoadedState { fs, vcs }))
+    }
+
+    fn save(&self, vfs: &VirtualFs, vcs: &Vcs) -> Result<(), VfsError> {
+        self.manager.save(vfs, vcs)
+    }
+
+    fn info(&self) -> PersistenceInfo {
+        PersistenceInfo {
+            backend: "local-state-file",
+            location: Some(self.manager.data_dir().to_path_buf()),
+        }
+    }
+}
+
+impl PersistenceBackend for MemoryPersistenceBackend {
+    fn load(&self) -> Result<Option<LoadedState>, VfsError> {
+        Ok(None)
+    }
+
+    fn save(&self, _vfs: &VirtualFs, _vcs: &Vcs) -> Result<(), VfsError> {
+        Ok(())
+    }
+
+    fn info(&self) -> PersistenceInfo {
+        PersistenceInfo {
+            backend: "memory",
+            location: None,
+        }
+    }
 }
 
 impl PersistManager {
@@ -84,6 +172,7 @@ impl PersistManager {
             cwd: vfs.cwd_id(),
             next_id: vfs.next_inode_id(),
             cwd_path: vfs.cwd_path_clone(),
+            compatibility_target: vfs.compatibility_target(),
             registry: vfs.registry.clone(),
         };
 
@@ -117,9 +206,16 @@ impl PersistManager {
         let path = self.base_dir.join(STATE_FILE);
         let data = fs::read(&path)?;
 
-        // Try V2 first
+        // Try V3 first
         if let Ok(state) = bincode::deserialize::<PersistedState>(&data) {
             if state.version == VERSION {
+                return Self::load_v3(state);
+            }
+        }
+
+        // Try V2 migration
+        if let Ok(state) = bincode::deserialize::<PersistedStateV2>(&data) {
+            if state.version == 2 {
                 return Self::load_v2(state);
             }
         }
@@ -136,13 +232,31 @@ impl PersistManager {
         })
     }
 
-    fn load_v2(state: PersistedState) -> Result<(VirtualFs, Vcs), VfsError> {
+    fn load_v3(state: PersistedState) -> Result<(VirtualFs, Vcs), VfsError> {
         let vfs = VirtualFs::from_persisted(
             state.fs_state.inodes,
             state.fs_state.root,
             state.fs_state.cwd,
             state.fs_state.next_id,
             state.fs_state.cwd_path,
+            FsOptions {
+                compatibility_target: state.fs_state.compatibility_target,
+            },
+            state.fs_state.registry,
+        );
+
+        let vcs = Self::load_vcs(state.vcs_state)?;
+        Ok((vfs, vcs))
+    }
+
+    fn load_v2(state: PersistedStateV2) -> Result<(VirtualFs, Vcs), VfsError> {
+        let vfs = VirtualFs::from_persisted(
+            state.fs_state.inodes,
+            state.fs_state.root,
+            state.fs_state.cwd,
+            state.fs_state.next_id,
+            state.fs_state.cwd_path,
+            FsOptions::default(),
             state.fs_state.registry,
         );
 
@@ -161,6 +275,7 @@ impl PersistManager {
             state.fs_state.cwd,
             state.fs_state.next_id,
             state.fs_state.cwd_path,
+            FsOptions::default(),
             registry,
         );
 

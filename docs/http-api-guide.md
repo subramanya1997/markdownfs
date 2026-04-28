@@ -27,6 +27,12 @@ Every request can include an auth header. Three modes are supported:
 | `Authorization: Bearer <token>` | Authenticate with an agent API token |
 | *(no header)* | Defaults to `root` |
 
+Hosted workspace requests can also include:
+
+| Header | Description |
+|---|---|
+| `X-Markdownfs-Workspace: <uuid>` | Scope a bearer token to a hosted workspace token issued by the gateway |
+
 Examples:
 
 ```bash
@@ -77,6 +83,38 @@ Response:
   "gid": 2,
   "groups": ["alice", "wheel"]
 }
+```
+
+## Hosted Workspaces
+
+### List Workspaces
+
+```bash
+curl http://localhost:3000/workspaces
+```
+
+### Create A Workspace
+
+```bash
+curl -X POST http://localhost:3000/workspaces \
+  -H "Content-Type: application/json" \
+  -d '{"name":"incident-demo","root_path":"/incidents/checkout-latency"}'
+```
+
+### Issue A Workspace Token
+
+```bash
+curl -X POST http://localhost:3000/workspaces/<workspace-id>/tokens \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ci-token","agent_token":"<existing-agent-token>"}'
+```
+
+Use the returned secret with:
+
+```bash
+curl http://localhost:3000/vcs/status \
+  -H "Authorization: Bearer <workspace-secret>" \
+  -H "X-Markdownfs-Workspace: <workspace-id>"
 ```
 
 ## Filesystem Operations

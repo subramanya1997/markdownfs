@@ -408,10 +408,13 @@ fn cmd_stat(fs: &VirtualFs, args: &[String], session: &Session) -> Result<String
     let owner = fs.registry.user_name(info.uid).unwrap_or("?");
     let group = fs.registry.group_name(info.gid).unwrap_or("?");
     Ok(format!(
-        "  File: {}\n  Size: {}\n  Type: {}\n Inode: {}\n  Mode: {:04o}\n   Uid: {} ({})\n   Gid: {} ({})\nCreated: {}\nModified: {}\n",
-        args[0], info.size, info.kind, info.inode_id, info.mode,
+        "  File: {}\n  Size: {}\n Blocks: {}\n IO Block: {}\n  Type: {}\n Inode: {}\n Links: {}\n  Mode: {:04o}\n   Uid: {} ({})\n   Gid: {} ({})\nCreated: {}.{}\nAccessed: {}.{}\nModified: {}.{}\n Changed: {}.{}\n",
+        args[0], info.size, info.blocks, info.block_size, info.kind, info.inode_id, info.nlink, info.mode,
         info.uid, owner, info.gid, group,
-        format_time(info.created), format_time(info.modified),
+        format_time(info.created), info.created_nanos,
+        format_time(info.accessed), info.accessed_nanos,
+        format_time(info.modified), info.modified_nanos,
+        format_time(info.changed), info.changed_nanos,
     ))
 }
 
@@ -689,12 +692,6 @@ fn cmd_ln(fs: &mut VirtualFs, args: &[String], session: &Session) -> Result<Stri
         }
     }
 
-    if !symlink {
-        return Err(VfsError::InvalidArgs {
-            message: "ln: only symbolic links supported (use -s)".to_string(),
-        });
-    }
-
     if targets.len() < 2 {
         return Err(VfsError::InvalidArgs {
             message: "ln: need target and link name".to_string(),
@@ -706,7 +703,13 @@ fn cmd_ln(fs: &mut VirtualFs, args: &[String], session: &Session) -> Result<Stri
     require_access(fs, parent_id, session, Access::Write, targets[1])?;
     require_access(fs, parent_id, session, Access::Execute, targets[1])?;
 
-    fs.ln_s(targets[0], targets[1], session.effective_uid(), session.effective_gid())?;
+    if symlink {
+        fs.ln_s(targets[0], targets[1], session.effective_uid(), session.effective_gid())?;
+    } else {
+        let target_id = fs.resolve_path_checked(targets[0], session)?;
+        require_access(fs, target_id, session, Access::Read, targets[0])?;
+        fs.link(targets[0], targets[1])?;
+    }
     Ok(String::new())
 }
 

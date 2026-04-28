@@ -32,10 +32,10 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn login(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> impl IntoResponse {
-    match db.login(&req.username).await {
+    match state.db.login(&req.username).await {
         Ok(session) => (
             StatusCode::OK,
             Json(LoginResponse {
@@ -56,10 +56,10 @@ async fn login(
     }
 }
 
-async fn health(State(db): State<AppState>) -> impl IntoResponse {
-    let commits = db.commit_count().await;
-    let inodes = db.inode_count().await;
-    let objects = db.object_count().await;
+async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    let commits = state.db.commit_count().await;
+    let inodes = state.db.inode_count().await;
+    let objects = state.db.object_count().await;
 
     Json(serde_json::json!({
         "status": "ok",

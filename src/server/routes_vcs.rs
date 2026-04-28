@@ -5,6 +5,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
+use uuid::Uuid;
+
 use super::middleware::session_from_headers;
 use super::AppState;
 
@@ -27,28 +29,40 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn vcs_commit(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<CommitRequest>,
 ) -> impl IntoResponse {
-    let session = match session_from_headers(&db, &headers).await {
+    let session = match session_from_headers(&state, &headers).await {
         Ok(s) => s,
         Err(e) => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
     };
 
-    match db.commit(&req.message, &session.username).await {
-        Ok(hash) => Json(serde_json::json!({
+    match state.db.commit(&req.message, &session.username).await {
+        Ok(hash) => {
+            if let Some(workspace_id) = headers
+                .get("x-markdownfs-workspace")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| Uuid::parse_str(value).ok())
+            {
+                let _ = state
+                    .workspaces
+                    .update_head_commit(workspace_id, Some(hash.clone()))
+                    .await;
+            }
+            Json(serde_json::json!({
             "hash": hash,
             "message": req.message,
             "author": session.username,
         }))
-        .into_response(),
+        .into_response()
+        }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
     }
 }
 
-async fn vcs_log(State(db): State<AppState>) -> impl IntoResponse {
-    let commits = db.vcs_log().await;
+async fn vcs_log(State(state): State<AppState>) -> impl IntoResponse {
+    let commits = state.db.vcs_log().await;
     let items: Vec<serde_json::Value> = commits
         .iter()
         .map(|c| {
@@ -64,17 +78,30 @@ async fn vcs_log(State(db): State<AppState>) -> impl IntoResponse {
 }
 
 async fn vcs_revert(
-    State(db): State<AppState>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RevertRequest>,
 ) -> impl IntoResponse {
-    match db.revert(&req.hash).await {
-        Ok(()) => Json(serde_json::json!({"reverted_to": req.hash})).into_response(),
+    match state.db.revert(&req.hash).await {
+        Ok(()) => {
+            if let Some(workspace_id) = headers
+                .get("x-markdownfs-workspace")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| Uuid::parse_str(value).ok())
+            {
+                let _ = state
+                    .workspaces
+                    .update_head_commit(workspace_id, Some(req.hash.clone()))
+                    .await;
+            }
+            Json(serde_json::json!({"reverted_to": req.hash})).into_response()
+        }
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
     }
 }
 
-async fn vcs_status(State(db): State<AppState>) -> impl IntoResponse {
-    match db.vcs_status().await {
+async fn vcs_status(State(state): State<AppState>) -> impl IntoResponse {
+    match state.db.vcs_status().await {
         Ok(status) => (StatusCode::OK, status).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
     }

@@ -31,6 +31,7 @@ This produces three binaries in `target/release/`:
 | `markdownfs` | Interactive CLI/REPL |
 | `markdownfs-server` | HTTP/REST API server |
 | `markdownfs-mcp` | MCP server for AI agents |
+| `mdfs` | Remote-first CLI over the HTTP/gateway surface |
 
 ## First Run — CLI
 
@@ -152,6 +153,31 @@ The MCP server communicates over stdio. Add it to your MCP client config — for
 ```
 
 See the [MCP Guide](mcp-guide.md) for tool descriptions and usage.
+
+## First Run — Remote CLI
+
+The `mdfs` binary is a thin client over the HTTP API and future hosted gateway.
+
+```bash
+cargo run --release --bin mdfs -- --url http://127.0.0.1:3000 health
+```
+
+Examples:
+
+```bash
+# As a named user
+cargo run --release --bin mdfs -- --url http://127.0.0.1:3000 --user alice ls /incidents
+
+# As an agent token
+cargo run --release --bin mdfs -- --url http://127.0.0.1:3000 --token "$MARKDOWNFS_TOKEN" grep timeout /runbooks
+
+# Workspace-scoped hosted token
+cargo run --release --bin mdfs -- \
+  --url http://127.0.0.1:3000 \
+  --workspace-id "<workspace-uuid>" \
+  --workspace-token "<workspace-secret>" \
+  status
+```
 
 ## Configuration
 

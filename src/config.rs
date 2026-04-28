@@ -1,4 +1,28 @@
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CompatibilityTarget {
+    Markdown,
+    Posix,
+}
+
+impl CompatibilityTarget {
+    pub fn from_env_value(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "markdown" | "markdown-only" | "markdown_only" => Some(Self::Markdown),
+            "posix" | "mount" | "fuse" => Some(Self::Posix),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Markdown => "markdown",
+            Self::Posix => "posix",
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -9,6 +33,7 @@ pub struct Config {
     pub max_file_size: usize,
     pub max_inodes: usize,
     pub max_dir_depth: usize,
+    pub compatibility_target: CompatibilityTarget,
 }
 
 impl Config {
@@ -45,6 +70,11 @@ impl Config {
             .and_then(|v| v.parse().ok())
             .unwrap_or(256);
 
+        let compatibility_target = std::env::var("MARKDOWNFS_COMPAT_TARGET")
+            .ok()
+            .and_then(|value| CompatibilityTarget::from_env_value(&value))
+            .unwrap_or(CompatibilityTarget::Markdown);
+
         Config {
             data_dir,
             listen_addr,
@@ -53,6 +83,7 @@ impl Config {
             max_file_size,
             max_inodes,
             max_dir_depth,
+            compatibility_target,
         }
     }
 
@@ -63,6 +94,11 @@ impl Config {
 
     pub fn with_listen_addr(mut self, addr: impl Into<String>) -> Self {
         self.listen_addr = addr.into();
+        self
+    }
+
+    pub fn with_compatibility_target(mut self, target: CompatibilityTarget) -> Self {
+        self.compatibility_target = target;
         self
     }
 }

@@ -3,6 +3,7 @@ use std::fmt;
 #[derive(Debug)]
 pub enum VfsError {
     InvalidExtension { name: String },
+    InvalidHandle { handle: u64 },
     NotFound { path: String },
     IsDirectory { path: String },
     NotDirectory { path: String },
@@ -19,6 +20,7 @@ pub enum VfsError {
     DirtyWorkingTree,
     PermissionDenied { path: String },
     AuthError { message: String },
+    NotSupported { message: String },
 }
 
 impl fmt::Display for VfsError {
@@ -27,6 +29,7 @@ impl fmt::Display for VfsError {
             VfsError::InvalidExtension { name } => {
                 write!(f, "markdownfs: only .md files are supported: '{name}'")
             }
+            VfsError::InvalidHandle { handle } => write!(f, "markdownfs: invalid handle: {handle}"),
             VfsError::NotFound { path } => write!(f, "markdownfs: no such file or directory: '{path}'"),
             VfsError::IsDirectory { path } => write!(f, "markdownfs: is a directory: '{path}'"),
             VfsError::NotDirectory { path } => write!(f, "markdownfs: not a directory: '{path}'"),
@@ -46,7 +49,8 @@ impl fmt::Display for VfsError {
             VfsError::PermissionDenied { path } => {
                 write!(f, "markdownfs: permission denied: '{path}'")
             }
-            VfsError::AuthError { message } => write!(f, "markdownfs: {message}")
+            VfsError::AuthError { message } => write!(f, "markdownfs: {message}"),
+            VfsError::NotSupported { message } => write!(f, "markdownfs: operation not supported: {message}"),
         }
     }
 }
