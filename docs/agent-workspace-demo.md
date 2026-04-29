@@ -60,7 +60,7 @@ root@markdownfs:~ $ exit
 Save the token in another terminal:
 
 ```bash
-export MARKDOWNFS_TOKEN="REPLACE_WITH_REAL_TOKEN"
+export AGENT_TOKEN="REPLACE_WITH_REAL_TOKEN"
 ```
 
 Exit the CLI before starting the HTTP server.
@@ -148,7 +148,7 @@ List the incident folder as the agent:
 
 ```bash
 curl -s http://localhost:3000/fs/incidents/checkout-latency/ \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" | jq
+  -H "Authorization: Bearer $AGENT_TOKEN" | jq
 ```
 
 Expected entries:
@@ -168,7 +168,7 @@ Show the whole tree:
 
 ```bash
 curl -s http://localhost:3000/tree \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN"
+  -H "Authorization: Bearer $AGENT_TOKEN"
 ```
 
 ### Minute 2-3: Let the agent inspect evidence before writing
@@ -177,14 +177,14 @@ Read the runbook:
 
 ```bash
 curl -s http://localhost:3000/fs/runbooks/payment-service.md \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN"
+  -H "Authorization: Bearer $AGENT_TOKEN"
 ```
 
 Search for prior timeout and retry signals:
 
 ```bash
 curl -s "http://localhost:3000/search/grep?pattern=timeout|retry&recursive=true" \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" | jq
+  -H "Authorization: Bearer $AGENT_TOKEN" | jq
 ```
 
 Expected result shape:
@@ -212,7 +212,7 @@ Write a root-cause summary:
 
 ```bash
 cat <<'EOF' | curl -s -X PUT http://localhost:3000/fs/incidents/checkout-latency/root-cause.md \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   --data-binary @-
 # Root Cause
 
@@ -230,7 +230,7 @@ Commit the investigation state:
 
 ```bash
 curl -s -X POST http://localhost:3000/vcs/commit \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message":"initial investigation"}' | jq
 ```
@@ -247,7 +247,7 @@ Make a bad edit:
 
 ```bash
 cat <<'EOF' | curl -s -X PUT http://localhost:3000/fs/incidents/checkout-latency/root-cause.md \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   --data-binary @-
 # Root Cause
 
@@ -259,7 +259,7 @@ Commit the bad state:
 
 ```bash
 curl -s -X POST http://localhost:3000/vcs/commit \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message":"bad incident conclusion"}' | jq
 ```
@@ -274,7 +274,7 @@ Revert to the earlier commit:
 
 ```bash
 curl -s -X POST http://localhost:3000/vcs/revert \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"hash":"REPLACE_WITH_PREVIOUS_HASH"}' | jq
 ```
@@ -283,7 +283,7 @@ Confirm the restored file:
 
 ```bash
 curl -s http://localhost:3000/fs/incidents/checkout-latency/root-cause.md \
-  -H "Authorization: Bearer $MARKDOWNFS_TOKEN"
+  -H "Authorization: Bearer $AGENT_TOKEN"
 ```
 
 ### Minute 5-6: Show permissioned agent access

@@ -24,10 +24,6 @@ name = "markdownfs-mcp"
 path = "src/bin/mdfs_mcp.rs"
 
 [[bin]]
-name = "mdfs"
-path = "src/bin/mdfs.rs"
-
-[[bin]]
 name = "mdfs-mount"
 path = "src/bin/mdfs_mount.rs"
 required-features = ["fuser"]
@@ -55,12 +51,7 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rmcp = { version = "1.4", features = ["server", "transport-io"] }
-async-trait = "0.1"
 clap = { version = "4", features = ["derive", "env"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
-rand = "0.8"
-uuid = { version = "1", features = ["v4", "serde"] }
-urlencoding = "2"
 fuser = { version = "0.17.0", optional = true, default-features = false, features = ["abi-7-31", "macfuse-4-compat"] }
 
 [features]

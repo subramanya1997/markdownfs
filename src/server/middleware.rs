@@ -1,5 +1,4 @@
 use axum::http::HeaderMap;
-use uuid::Uuid;
 
 use crate::auth::session::Session;
 use crate::error::VfsError;
@@ -15,20 +14,6 @@ pub async fn session_from_headers(
         })?;
 
         if let Some(token) = header_str.strip_prefix("Bearer ") {
-            if let Some(workspace_id) = headers
-                .get("x-markdownfs-workspace")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| Uuid::parse_str(value).ok())
-            {
-                if let Some(valid) = state
-                    .workspaces
-                    .validate_workspace_token(workspace_id, token)
-                    .await?
-                {
-                    return state.db.authenticate_token(&valid.token.agent_token).await;
-                }
-            }
-
             return state.db.authenticate_token(token).await;
         }
 

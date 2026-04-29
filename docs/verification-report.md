@@ -14,7 +14,6 @@ Rust edition: 2024, mdfs v0.2.0
 | Release build | `cargo build --release --bins` | PASS — builds preferred binaries plus legacy alias binaries |
 | Optional FUSE build | `cargo build --release --features fuser --bin mdfs-mount` | PASS — builds the mount binary when macFUSE/pkg-config are available |
 | Binary: `markdownfs` | Interactive CLI/REPL | PASS |
-| Binary: `mdfs` | Remote-first CLI | PASS |
 | Binary: `mdfs-server` | HTTP API server | PASS |
 | Binary: `mdfs-mcp` | MCP server | PASS |
 | Binary: `mdfs-mount` | Optional FUSE mount | PASS |
@@ -380,7 +379,7 @@ Build verification:
 |---|---|
 | `cargo build --release --bins` | PASS |
 | `cargo build --release --features fuser --bin mdfs-mount` | PASS |
-| `cargo check --bin mdfs --bin markdownfs --bin mdfs-server --bin markdownfs-server --bin mdfs-mcp --bin markdownfs-mcp` | PASS |
+| `cargo check --bin markdownfs --bin mdfs-server --bin markdownfs-server --bin mdfs-mcp --bin markdownfs-mcp` | PASS |
 | `cargo check --features fuser --bin mdfs-mount` | PASS |
 | `cargo test --features fuser --bin mdfs-mount` | PASS |
 | `cargo test --features fuser --bin markdownfs-mount` | PASS |
