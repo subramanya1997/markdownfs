@@ -8,7 +8,6 @@ pub mod fs;
 pub mod io;
 pub mod persist;
 pub mod posix;
-pub mod remote;
 pub mod server;
 pub mod store;
 pub mod vcs;

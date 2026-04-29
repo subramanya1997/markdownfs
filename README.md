@@ -94,7 +94,6 @@ Detailed guides are available in the [`docs/`](docs/) folder:
 | [CLI Cloud Bridge](docs/cli-cloud-bridge.md) | `mdfs` CLI vision, hosted gateway, and cloud execution targets |
 | [Semantic Index](docs/semantic-index.md) | Vector-based retrieval as a derived index over markdown workspaces |
 | [Execution Roadmap](docs/execution-roadmap.md) | How to evolve from workspace layer to execution layer |
-| [Cloudflare Deployment](deploy/cloudflare/README.md) | Containerized gateway packaging for a Cloudflare-first path |
 
 ## Examples
 

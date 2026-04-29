@@ -60,8 +60,6 @@ clap = { version = "4", features = ["derive", "env"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 rand = "0.8"
 uuid = { version = "1", features = ["v4", "serde"] }
-aws-config = "1"
-aws-sdk-s3 = "1"
 urlencoding = "2"
 fuser = { version = "0.17.0", optional = true, default-features = false, features = ["abi-7-31", "macfuse-4-compat"] }
 
