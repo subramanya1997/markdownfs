@@ -1,10 +1,10 @@
 # User Management
 
-markdownfs has a built-in multi-user system with Unix-style permissions. This guide covers creating users, managing groups, setting permissions, and controlling access.
+mdfs has a built-in multi-user system with Unix-style permissions. This guide covers creating users, managing groups, setting permissions, and controlling access.
 
 ## Default State
 
-A fresh markdownfs instance has one user and two groups:
+A fresh mdfs instance has one user and two groups:
 
 | Entity | ID | Notes |
 |---|---|---|
@@ -42,7 +42,7 @@ Created agent: deploy-bot (uid=3)
 Token: a1b2c3d4e5f6...  (save this — shown only once)
 ```
 
-The token is used for HTTP API authentication via `Authorization: Bearer <token>`. The raw token is shown once — markdownfs only stores its SHA-256 hash internally.
+The token is used for HTTP API authentication via `Authorization: Bearer <token>`. The raw token is shown once — mdfs only stores its SHA-256 hash internally.
 
 ### Deleting Users
 
@@ -123,7 +123,7 @@ bob
 
 ## Permission Model
 
-markdownfs uses standard Unix-style permission bits: **owner**, **group**, and **other**, each with read (r), write (w), and execute (x).
+mdfs uses standard Unix-style permission bits: **owner**, **group**, and **other**, each with read (r), write (w), and execute (x).
 
 ### Permission Bits
 

@@ -29,6 +29,12 @@ fn err_json(status: StatusCode, msg: impl Into<String>) -> impl IntoResponse {
     (status, Json(serde_json::json!({"error": msg.into()})))
 }
 
+fn parent_path(path: &str) -> Option<String> {
+    let trimmed = path.trim_end_matches('/');
+    let idx = trimmed.rfind('/')?;
+    Some(trimmed[..idx].to_string())
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/fs", get(get_fs_root))
@@ -125,6 +131,13 @@ async fn put_fs(
         }
     } else {
         if state.db.stat(&path).await.is_err() {
+            if let Some(parent) = parent_path(&path) {
+                if !parent.is_empty() && state.db.stat(&parent).await.is_err() {
+                    if let Err(e) = state.db.mkdir_p(&parent, session.uid, session.gid).await {
+                        return err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response();
+                    }
+                }
+            }
             if let Err(e) = state.db.touch(&path, session.uid, session.gid).await {
                 return err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response();
             }

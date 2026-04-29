@@ -8,20 +8,33 @@ name = "markdownfs"
 path = "src/main.rs"
 
 [[bin]]
+name = "mdfs-server"
+path = "src/bin/mdfs_server.rs"
+
+[[bin]]
 name = "markdownfs-server"
-path = "src/bin/markdownfs_server.rs"
+path = "src/bin/mdfs_server.rs"
+
+[[bin]]
+name = "mdfs-mcp"
+path = "src/bin/mdfs_mcp.rs"
 
 [[bin]]
 name = "markdownfs-mcp"
-path = "src/bin/markdownfs_mcp.rs"
+path = "src/bin/mdfs_mcp.rs"
 
 [[bin]]
 name = "mdfs"
 path = "src/bin/mdfs.rs"
 
 [[bin]]
+name = "mdfs-mount"
+path = "src/bin/mdfs_mount.rs"
+required-features = ["fuser"]
+
+[[bin]]
 name = "markdownfs-mount"
-path = "src/bin/markdownfs_mount.rs"
+path = "src/bin/mdfs_mount.rs"
 required-features = ["fuser"]
 
 [dependencies]
@@ -50,7 +63,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 aws-config = "1"
 aws-sdk-s3 = "1"
 urlencoding = "2"
-fuser = { version = "0.17.0", optional = true, default-features = false, features = ["abi-7-31", "macos-no-mount"] }
+fuser = { version = "0.17.0", optional = true, default-features = false, features = ["abi-7-31", "macfuse-4-compat"] }
 
 [features]
 fuser = ["dep:fuser"]

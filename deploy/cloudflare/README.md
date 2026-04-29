@@ -1,6 +1,6 @@
 # Cloudflare Deployment
 
-This directory packages `markdownfs-server` for a Cloudflare-first hosted deployment path.
+This directory packages `mdfs-server` for a Cloudflare-first hosted deployment path.
 
 ## What This Deploy Path Does
 
@@ -11,7 +11,7 @@ This directory packages `markdownfs-server` for a Cloudflare-first hosted deploy
 
 ## Files
 
-- `Dockerfile` — builds and runs `markdownfs-server`
+- `Dockerfile` — builds and runs `mdfs-server`
 - `wrangler.jsonc` — Cloudflare configuration
 - `src/index.ts` — Worker + Container entrypoint
 

@@ -14,7 +14,7 @@ async fn main() {
     let config = Config::from_env();
     let listen_addr = config.listen_addr.clone();
 
-    tracing::info!(data_dir = %config.data_dir.display(), "starting markdownfs server");
+    tracing::info!(data_dir = %config.data_dir.display(), "starting mdfs server");
 
     let db = MarkdownDb::open(config).expect("failed to open database");
 

@@ -1,7 +1,7 @@
 import { Container, getContainer } from "@cloudflare/containers";
 
 export interface Env {
-  MarkdownFsGateway: DurableObjectNamespace<MarkdownFsGateway>;
+  MdfsGateway: DurableObjectNamespace<MdfsGateway>;
   MARKDOWNFS_LISTEN: string;
   MARKDOWNFS_DATA_DIR: string;
   MARKDOWNFS_R2_BUCKET: string;
@@ -12,7 +12,7 @@ export interface Env {
   MARKDOWNFS_R2_PREFIX: string;
 }
 
-export class MarkdownFsGateway extends Container<Env> {
+export class MdfsGateway extends Container<Env> {
   defaultPort = 8080;
   sleepAfter = "10m";
 
@@ -30,7 +30,7 @@ export class MarkdownFsGateway extends Container<Env> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const container = getContainer(env.MarkdownFsGateway, "markdownfs-gateway");
+    const container = getContainer(env.MdfsGateway, "mdfs-gateway");
     return container.fetch(request);
   },
 };

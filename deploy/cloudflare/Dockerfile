@@ -6,16 +6,16 @@ COPY src ./src
 COPY docs ./docs
 COPY examples ./examples
 
-RUN cargo build --release --bin markdownfs-server
+RUN cargo build --release --bin mdfs-server
 
 FROM debian:bookworm-slim
 
 WORKDIR /app
-COPY --from=builder /app/target/release/markdownfs-server /usr/local/bin/markdownfs-server
+COPY --from=builder /app/target/release/mdfs-server /usr/local/bin/mdfs-server
 
 ENV MARKDOWNFS_LISTEN=0.0.0.0:8080
 ENV MARKDOWNFS_DATA_DIR=/data
 
 EXPOSE 8080
 
-CMD ["markdownfs-server"]
+CMD ["mdfs-server"]

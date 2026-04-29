@@ -1,6 +1,6 @@
 # MCP Guide — AI Agent Integration
 
-markdownfs includes an MCP (Model Context Protocol) server that lets AI agents — like Cursor, Claude Desktop, or any MCP-compatible client — interact with the filesystem using structured tool calls.
+mdfs includes an MCP (Model Context Protocol) server that lets AI agents — like Cursor, Claude Desktop, or any MCP-compatible client — interact with the filesystem using structured tool calls.
 
 ## What is MCP?
 
@@ -11,10 +11,10 @@ MCP is a protocol that lets AI assistants call tools exposed by external servers
 ### 1. Build the MCP Binary
 
 ```bash
-cargo build --release --bin markdownfs-mcp
+cargo build --release --bin mdfs-mcp
 ```
 
-The binary is at `target/release/markdownfs-mcp`.
+The binary is at `target/release/mdfs-mcp`.
 
 ### 2. Configure Your MCP Client
 
@@ -25,8 +25,8 @@ Add to your project's `.cursor/mcp.json` or global MCP config:
 ```json
 {
   "mcpServers": {
-    "markdownfs": {
-      "command": "/absolute/path/to/target/release/markdownfs-mcp",
+    "mdfs": {
+      "command": "/absolute/path/to/target/release/mdfs-mcp",
       "env": {
         "MARKDOWNFS_DATA_DIR": "/path/to/your/data"
       }
@@ -42,8 +42,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 ```json
 {
   "mcpServers": {
-    "markdownfs": {
-      "command": "/absolute/path/to/target/release/markdownfs-mcp",
+    "mdfs": {
+      "command": "/absolute/path/to/target/release/mdfs-mcp",
       "env": {
         "MARKDOWNFS_DATA_DIR": "/path/to/your/data"
       }
@@ -54,7 +54,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 ### 3. Verify
 
-After restarting your MCP client, the markdownfs tools should appear in the tool list. The server communicates over stdio (stdin/stdout).
+After restarting your MCP client, the mdfs tools should appear in the tool list. The server communicates over stdio (stdin/stdout).
 
 ## Available Tools
 
@@ -243,8 +243,10 @@ The MCP server also exposes read-only resources:
 
 | URI | Description |
 |---|---|
-| `markdownfs://tree` | Full directory tree (text/plain) |
-| `markdownfs://files/<path>` | Read a specific file's content |
+| `mdfs://tree` | Full directory tree (text/plain) |
+| `mdfs://files/<path>` | Read a specific file's content |
+
+The legacy `markdownfs://tree` and `markdownfs://files/<path>` resource URIs are still accepted as aliases.
 
 ## Important Notes
 
@@ -255,7 +257,7 @@ The MCP server also exposes read-only resources:
 
 ## Example AI Workflow
 
-Here's how an AI agent might use markdownfs in a typical session:
+Here's how an AI agent might use mdfs in a typical session:
 
 ```
 1. list_directory(path: "/")

@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through installing, building, and running markdownfs for the first time.
+This guide walks you through installing, building, and running mdfs for the first time.
 
 ## Prerequisites
 
@@ -16,22 +16,24 @@ cargo --version
 
 ## Building from Source
 
-Clone the repository and build all three binaries in release mode:
+Clone the repository and build the release binaries:
 
 ```bash
-git clone <repo-url> markdownfs
-cd markdownfs
+git clone <repo-url> mdfs
+cd mdfs
 cargo build --release
 ```
 
-This produces three binaries in `target/release/`:
+This produces the preferred binaries in `target/release/`:
 
 | Binary | Purpose |
 |---|---|
 | `markdownfs` | Interactive CLI/REPL |
-| `markdownfs-server` | HTTP/REST API server |
-| `markdownfs-mcp` | MCP server for AI agents |
+| `mdfs-server` | HTTP/REST API server |
+| `mdfs-mcp` | MCP server for AI agents |
 | `mdfs` | Remote-first CLI over the HTTP/gateway surface |
+
+Compatibility aliases for `markdownfs-server` and `markdownfs-mcp` are also built. The optional `mdfs-mount` binary is built separately with `--features fuser`.
 
 ## First Run — CLI
 
@@ -41,7 +43,7 @@ Start the interactive shell:
 cargo run --release --bin markdownfs
 ```
 
-On first launch, there are no users besides `root`. markdownfs prompts you to create an admin account, automatically creates your home directory, and drops you right in:
+On first launch, there are no users besides `root`. mdfs prompts you to create an admin account, automatically creates your home directory, and drops you right in:
 
 ```
 markdownfs v0.2.0 — Markdown Virtual File System
@@ -69,9 +71,9 @@ alice@markdownfs:~ $ pwd
 /home/alice
 
 alice@markdownfs:~ $ touch hello.md
-alice@markdownfs:~ $ write hello.md # Welcome to markdownfs
+alice@markdownfs:~ $ write hello.md # Welcome to mdfs
 alice@markdownfs:~ $ cat hello.md
-# Welcome to markdownfs
+# Welcome to mdfs
 
 alice@markdownfs:~ $ mkdir docs
 alice@markdownfs:~ $ touch docs/readme.md
@@ -109,7 +111,7 @@ root@markdownfs:~ $ su alice
 Start the REST API:
 
 ```bash
-MARKDOWNFS_LISTEN=127.0.0.1:3000 cargo run --release --bin markdownfs-server
+MARKDOWNFS_LISTEN=127.0.0.1:3000 cargo run --release --bin mdfs-server
 ```
 
 The server is now accepting requests:
@@ -134,7 +136,7 @@ See the [HTTP API Guide](http-api-guide.md) for the full endpoint reference.
 For AI agent integration (Cursor, Claude Desktop, etc.):
 
 ```bash
-cargo run --release --bin markdownfs-mcp
+cargo run --release --bin mdfs-mcp
 ```
 
 The MCP server communicates over stdio. Add it to your MCP client config — for example, in Cursor's `mcp.json`:
@@ -142,8 +144,8 @@ The MCP server communicates over stdio. Add it to your MCP client config — for
 ```json
 {
   "mcpServers": {
-    "markdownfs": {
-      "command": "/absolute/path/to/target/release/markdownfs-mcp",
+    "mdfs": {
+      "command": "/absolute/path/to/target/release/mdfs-mcp",
       "env": {
         "MARKDOWNFS_DATA_DIR": "/path/to/your/data"
       }
@@ -202,7 +204,7 @@ cargo run --release --bin markdownfs
 
 ## Data Persistence
 
-markdownfs stores its entire state (filesystem, users, version history) in a single binary file:
+mdfs stores its entire state (filesystem, users, version history) in a single binary file:
 
 ```
 <MARKDOWNFS_DATA_DIR>/.vfs/state.bin

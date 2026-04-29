@@ -1,10 +1,10 @@
 # Semantic Index
 
-This guide describes how to add vector-based discovery to `markdownfs` without turning the vector database into the source of truth.
+This guide describes how to add vector-based discovery to `mdfs` without turning the vector database into the source of truth.
 
 ## Principle
 
-`markdownfs` should remain the canonical store for:
+`mdfs` should remain the canonical store for:
 
 - file contents
 - permissions
@@ -37,7 +37,7 @@ That is why the right architecture is:
 
 ```mermaid
 flowchart LR
-  workspace[markdownfs Workspace] --> commits[Commits And Writes]
+  workspace[mdfs Workspace] --> commits[Commits And Writes]
   commits --> indexer[Chunk And Embed]
   indexer --> vectorDb[Vector Database]
   agent[Agent] --> searchCmd[mdfs search]
@@ -159,4 +159,4 @@ The CLI should return:
 4. Add a search API.
 5. Add `mdfs search`.
 
-The important constraint is unchanged throughout: the vector layer accelerates retrieval, but `markdownfs` remains the truth.
+The important constraint is unchanged throughout: the vector layer accelerates retrieval, but `mdfs` remains the truth.

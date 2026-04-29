@@ -1,5 +1,7 @@
 /target
 .vfs/
+.demo/
+.ipynb_checkpoints/
 *.swp
 *.swo
 *~

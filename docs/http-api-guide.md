@@ -1,20 +1,20 @@
 # HTTP API Guide
 
-The `markdownfs-server` binary exposes a REST API for programmatic access to markdownfs. This guide covers every endpoint with request and response examples.
+The `mdfs-server` binary exposes a REST API for programmatic access to mdfs. This guide covers every endpoint with request and response examples.
 
 ## Starting the Server
 
 ```bash
 # Default: listen on 127.0.0.1:3000
-cargo run --release --bin markdownfs-server
+cargo run --release --bin mdfs-server
 
 # Custom address
-MARKDOWNFS_LISTEN=0.0.0.0:8080 cargo run --release --bin markdownfs-server
+MARKDOWNFS_LISTEN=0.0.0.0:8080 cargo run --release --bin mdfs-server
 
 # With custom data directory and logging
-MARKDOWNFS_DATA_DIR=/var/data/markdownfs \
+MARKDOWNFS_DATA_DIR=/var/data/mdfs \
 RUST_LOG=markdownfs=debug \
-cargo run --release --bin markdownfs-server
+cargo run --release --bin mdfs-server
 ```
 
 ## Authentication
@@ -81,9 +81,11 @@ Response:
   "username": "alice",
   "uid": 1,
   "gid": 2,
-  "groups": ["alice", "wheel"]
+  "groups": [2, 1]
 }
 ```
+
+The `groups` field contains numeric group IDs (gids), not group names. The first entry is the primary group.
 
 ## Hosted Workspaces
 
@@ -147,9 +149,36 @@ Response:
 {
   "path": "/docs",
   "entries": [
-    {"name": "api.md", "kind": "file"},
-    {"name": "readme.md", "kind": "file"},
-    {"name": "specs", "kind": "directory"}
+    {
+      "name": "api.md",
+      "is_dir": false,
+      "is_symlink": false,
+      "mode": "0644",
+      "uid": 1,
+      "gid": 2,
+      "size": 75,
+      "modified": 1713001275
+    },
+    {
+      "name": "readme.md",
+      "is_dir": false,
+      "is_symlink": false,
+      "mode": "0644",
+      "uid": 1,
+      "gid": 2,
+      "size": 42,
+      "modified": 1713001200
+    },
+    {
+      "name": "specs",
+      "is_dir": true,
+      "is_symlink": false,
+      "mode": "0755",
+      "uid": 1,
+      "gid": 2,
+      "size": 2,
+      "modified": 1713001100
+    }
   ]
 }
 ```
@@ -176,6 +205,8 @@ Response:
 }
 ```
 
+The `kind` field is one of `"file"`, `"directory"`, or `"symlink"`.
+
 ### Write a File
 
 ```bash
@@ -195,7 +226,7 @@ Response:
 }
 ```
 
-The file is created automatically if it doesn't exist (including parent directories for the path).
+The file is created automatically if it doesn't exist, including missing parent directories for the path.
 
 ### Create a Directory
 

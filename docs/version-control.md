@@ -1,10 +1,10 @@
 # Version Control
 
-markdownfs has built-in Git-style version control. You can snapshot the entire filesystem, view history, and revert to any previous state — all in microseconds.
+mdfs has built-in Git-style version control. You can snapshot the entire filesystem, view history, and revert to any previous state — all in microseconds.
 
 ## How It Works
 
-Under the hood, markdownfs uses content-addressable storage (the same approach as Git):
+Under the hood, mdfs uses content-addressable storage (the same approach as Git):
 
 - **Blobs** store raw file content, identified by SHA-256 hash
 - **Trees** store directory snapshots (list of entries with names, types, permissions)
@@ -95,6 +95,17 @@ You only need enough characters of the hash to uniquely identify the commit. If 
 
 - **User accounts and groups** are untouched — a revert never deletes users
 - **The commit history itself** remains intact — you can still see all commits in `log`
+
+### A Note on the Working Directory
+
+After a revert, the CLI's working directory (`pwd`) is reset to `/`. If the path you were in still exists in the reverted state, simply `cd` back to it:
+
+```
+alice@markdownfs:~/project $ revert a1b2c3d4
+Reverted to a1b2c3d4
+alice@markdownfs:/ $ cd /home/alice/project
+alice@markdownfs:~/project $
+```
 
 ## Practical Workflow
 

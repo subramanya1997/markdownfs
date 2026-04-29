@@ -85,6 +85,13 @@ impl McpServer {
                 let path = args["path"].as_str().ok_or("missing path")?;
                 let content = args["content"].as_str().ok_or("missing content")?;
                 if self.db.stat(path).await.is_err() {
+                    let trimmed = path.trim_end_matches('/');
+                    if let Some(idx) = trimmed.rfind('/') {
+                        let parent = &trimmed[..idx];
+                        if !parent.is_empty() && self.db.stat(parent).await.is_err() {
+                            self.db.mkdir_p(parent, 0, 0).await.map_err(|e| e.to_string())?;
+                        }
+                    }
                     self.db.touch(path, 0, 0).await.map_err(|e| e.to_string())?;
                 }
                 self.db.write_file(path, content.as_bytes().to_vec()).await.map_err(|e| e.to_string())?;
@@ -166,7 +173,7 @@ impl ServerHandler for McpServer {
         });
         InitializeResult::new(caps)
         .with_instructions(
-            "markdownfs is a markdown-only virtual filesystem with Git-like versioning. \
+            "mdfs is a markdown-only virtual filesystem with Git-like versioning. \
              Use tools to read, write, search, and manage markdown files. \
              All files must have .md extension.",
         )
@@ -214,11 +221,17 @@ impl ServerHandler for McpServer {
         _context: rmcp::service::RequestContext<RoleServer>,
     ) -> impl std::future::Future<Output = Result<ListResourcesResult, McpError>> + Send + '_ {
         async {
-            let resource = RawResource::new("markdownfs://tree", "Directory Tree")
+            let resource = RawResource::new("mdfs://tree", "Directory Tree")
                 .with_description("Full directory tree of the filesystem")
                 .with_mime_type("text/plain");
+            let legacy_resource = RawResource::new("markdownfs://tree", "Directory Tree (legacy)")
+                .with_description("Legacy alias for mdfs://tree")
+                .with_mime_type("text/plain");
             let mut result = ListResourcesResult::default();
-            result.resources = vec![Annotated::new(resource, None)];
+            result.resources = vec![
+                Annotated::new(resource, None),
+                Annotated::new(legacy_resource, None),
+            ];
             Ok(result)
         }
     }
@@ -230,11 +243,14 @@ impl ServerHandler for McpServer {
     ) -> impl std::future::Future<Output = Result<ReadResourceResult, McpError>> + Send + '_ {
         async move {
             let uri = request.uri.as_str();
-            if uri == "markdownfs://tree" {
+            if uri == "mdfs://tree" || uri == "markdownfs://tree" {
                 let tree = self.db.tree(None, None).await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 Ok(ReadResourceResult::new(vec![ResourceContents::text(tree, uri)]))
-            } else if let Some(path) = uri.strip_prefix("markdownfs://files/") {
+            } else if let Some(path) = uri
+                .strip_prefix("mdfs://files/")
+                .or_else(|| uri.strip_prefix("markdownfs://files/"))
+            {
                 let content = self.db.cat(path).await
                     .map_err(|e| McpError::internal_error(e.to_string(), None))?;
                 Ok(ReadResourceResult::new(vec![ResourceContents::text(
@@ -258,7 +274,7 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
-    tracing::info!(data_dir = %config.data_dir.display(), "starting markdownfs MCP server");
+    tracing::info!(data_dir = %config.data_dir.display(), "starting mdfs MCP server");
 
     let db = MarkdownDb::open(config).expect("failed to open database");
     let _save_handle = db.spawn_auto_save();

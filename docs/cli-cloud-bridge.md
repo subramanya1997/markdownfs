@@ -153,7 +153,7 @@ That is enough to power:
 
 ### Now
 
-Use shell commands like `curl` and `jq` against `markdownfs-server`.
+Use shell commands like `curl` and `jq` against `mdfs-server`.
 
 ### Next
 

@@ -1,20 +1,22 @@
-# markdownfs
+# mdfs
 
 A high-performance, concurrent markdown database built in Rust. Supports Unix-like commands, Git-style versioning with content-addressable storage, disk persistence, multi-user permissioning, HTTP/REST API, and MCP (Model Context Protocol) for AI agents.
 
-`markdownfs` is also a strong fit for **agent workspace** use cases: durable markdown memory, inspectable artifacts, search, permissions, commits, and rollback in one shared surface.
+`mdfs` is also a strong fit for **agent workspace** use cases: durable markdown memory, inspectable artifacts, search, permissions, commits, and rollback in one shared surface.
+
+`mdfs` is the product and docs terminology. The old `markdownfs`, `markdownfs-server`, `markdownfs-mcp`, and `markdownfs-mount` binaries remain available as compatibility aliases; environment variables, crate paths, and some protocol strings still use the legacy `markdownfs` name.
 
 Only Markdown (`.md`) files are supported by design.
 
 ## Access Methods
 
-markdownfs can be used three ways:
+mdfs can be used three ways:
 
 | Method | Binary | Use Case |
 |---|---|---|
 | **CLI/REPL** | `markdownfs` | Interactive terminal use |
-| **HTTP/REST API** | `markdownfs-server` | Web apps, services, any HTTP client |
-| **MCP Server** | `markdownfs-mcp` | AI agents (Cursor, Claude, etc.) |
+| **HTTP/REST API** | `mdfs-server` | Web apps, services, any HTTP client |
+| **MCP Server** | `mdfs-mcp` | AI agents (Cursor, Claude, etc.) |
 | **Remote-first CLI** | `mdfs` | Thin client over the HTTP/gateway surface |
 
 All three share the same concurrent core (`MarkdownDb`) with `tokio::RwLock` for safe multi-reader/single-writer access.
@@ -28,7 +30,7 @@ cargo build --release
 cargo run --release --bin markdownfs
 ```
 
-On first launch, you create an admin account. markdownfs sets up your home directory and drops you right in:
+On first launch, you create an admin account. mdfs sets up your home directory and drops you right in:
 
 ```
 markdownfs v0.2.0 — Markdown Virtual File System
@@ -42,21 +44,21 @@ Home directory: /home/alice
 Type 'help' for available commands, 'exit' to quit.
 
 alice@markdownfs:~ $ touch hello.md
-alice@markdownfs:~ $ write hello.md # Welcome to markdownfs
+alice@markdownfs:~ $ write hello.md # Welcome to mdfs
 alice@markdownfs:~ $ cat hello.md
-# Welcome to markdownfs
+# Welcome to mdfs
 ```
 
 ### HTTP Server
 
 ```bash
-MARKDOWNFS_LISTEN=127.0.0.1:3000 cargo run --release --bin markdownfs-server
+MARKDOWNFS_LISTEN=127.0.0.1:3000 cargo run --release --bin mdfs-server
 ```
 
 ### MCP Server
 
 ```bash
-cargo run --release --bin markdownfs-mcp
+cargo run --release --bin mdfs-mcp
 ```
 
 Add to your MCP client config (e.g., Cursor `mcp.json`):
@@ -64,8 +66,8 @@ Add to your MCP client config (e.g., Cursor `mcp.json`):
 ```json
 {
   "mcpServers": {
-    "markdownfs": {
-      "command": "/path/to/markdownfs-mcp",
+    "mdfs": {
+      "command": "/path/to/mdfs-mcp",
       "env": {
         "MARKDOWNFS_DATA_DIR": "/path/to/data"
       }
@@ -101,6 +103,7 @@ Example demo content lives in [`examples/`](examples/):
 | Example | Description |
 |---|---|
 | [Incident Workspace](examples/incident-workspace/README.md) | Seed markdown files for the agent-workspace demo |
+| [Notebook Examples](examples/notebooks/README.md) | Jupyter walkthroughs for getting started, mounting, and user-to-agent delegation |
 
 ## HTTP API Reference
 
@@ -255,8 +258,9 @@ src/
     routes_auth.rs   Auth + health endpoints
     middleware.rs    Auth extraction
   bin/
-    markdownfs_server.rs  HTTP server binary
-    markdownfs_mcp.rs     MCP server binary
+    mdfs_server.rs  HTTP server binary
+    mdfs_mcp.rs     MCP server binary
+    mdfs_mount.rs   FUSE mount binary
   auth/            Multi-user identity & permissions
     mod.rs           User, Group types
     registry.rs      UserRegistry CRUD
@@ -275,7 +279,7 @@ src/
 
 ## Performance
 
-~125x average speedup over native filesystem (in-memory, zero-copy reads, content-addressable dedup).
+~102.8x average speedup over native filesystem in the latest release benchmark run (in-memory, zero-copy reads, content-addressable dedup).
 
 ```bash
 cargo test --release --test perf -- --nocapture
@@ -284,11 +288,11 @@ cargo test --release --test perf_comparison -- --nocapture
 
 ## Testing
 
-215 tests across 5 suites:
+239 tests across 5 suites:
 
 ```bash
-cargo test                        # all tests
-cargo test --test integration     # 106 integration tests
+cargo test                        # all tests (18 unit + 111 integration + 37 perf + 1 perf_comparison + 72 permissions)
+cargo test --test integration     # 111 integration tests
 cargo test --test permissions     # 72 permission tests
 cargo test --test perf --release  # 37 perf benchmarks
 ```

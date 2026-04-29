@@ -1,11 +1,11 @@
 # Agent Workspace Demo
 
-This guide gives a runnable 7-minute demo for positioning `markdownfs` as an agent workspace.
+This guide gives a runnable 7-minute demo for positioning `mdfs` as an agent workspace.
 
 The current demo uses:
 
-- the `markdownfs` CLI for one-time setup
-- the `markdownfs-server` HTTP API as the single writer
+- the `markdownfs` CLI (legacy binary name) for one-time setup
+- the `mdfs-server` HTTP API as the single writer
 - normal shell commands like `curl` and `jq` so the agent can work through familiar CLI tools
 
 ## Demo Goal
@@ -70,7 +70,7 @@ Exit the CLI before starting the HTTP server.
 ```bash
 MARKDOWNFS_DATA_DIR="$MARKDOWNFS_DATA_DIR" \
 MARKDOWNFS_LISTEN=127.0.0.1:3000 \
-cargo run --release --bin markdownfs-server
+cargo run --release --bin mdfs-server
 ```
 
 ### 4. Seed the workspace from the example files

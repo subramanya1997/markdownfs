@@ -1,10 +1,10 @@
 # Filesystem Guide
 
-This guide covers all filesystem operations in markdownfs — creating files and directories, reading and writing content, moving and copying, searching, and using pipes.
+This guide covers all filesystem operations in mdfs — creating files and directories, reading and writing content, moving and copying, searching, and using pipes.
 
 ## Key Concept: Markdown Only
 
-markdownfs only stores `.md` files. Every file you create must have the `.md` extension:
+mdfs only stores `.md` files. Every file you create must have the `.md` extension:
 
 ```
 alice@markdownfs:/ $ touch notes.md     # works
@@ -205,7 +205,7 @@ alice@markdownfs:/ $ stat notes.md
 
 ## Symbolic Links
 
-markdownfs supports symbolic links (hard links are not supported):
+mdfs supports symbolic links (hard links are not supported):
 
 ```
 alice@markdownfs:/ $ ln -s docs/readme.md quick-link.md
@@ -216,7 +216,7 @@ alice@markdownfs:/ $ ls -l
 lrwxrwxrwx alice     alice            14 Apr 13 11:00 quick-link.md -> docs/readme.md
 ```
 
-Symlinks are followed transparently by `cat` and `write`. markdownfs detects and prevents symlink loops.
+Symlinks are followed transparently by `cat` and `write`. mdfs detects and prevents symlink loops.
 
 ## Searching
 
@@ -268,7 +268,7 @@ Supported glob characters:
 
 ## Pipes
 
-markdownfs supports Unix-style pipes to chain commands together. The output of one command becomes the input of the next.
+mdfs supports Unix-style pipes to chain commands together. The output of one command becomes the input of the next.
 
 ### Available Pipe Commands
 

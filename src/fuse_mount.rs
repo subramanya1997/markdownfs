@@ -31,7 +31,6 @@ impl MarkdownFsFuse {
         let mut mount_options = vec![
             MountOption::FSName("markdownfs".to_string()),
             MountOption::Subtype("markdownfs".to_string()),
-            MountOption::AutoUnmount,
             MountOption::DefaultPermissions,
         ];
         if read_only {

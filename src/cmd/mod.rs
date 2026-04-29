@@ -895,8 +895,10 @@ fn cmd_groups(
     let username = if args.is_empty() {
         &session.username
     } else {
-        // Only root or the user themselves can see others' groups
-        if session.uid != ROOT_UID && args[0] != session.username {
+        // Root, wheel members, or the user themselves can see others' groups
+        let is_admin =
+            session.uid == ROOT_UID || session.groups.contains(&WHEEL_GID);
+        if !is_admin && args[0] != session.username {
             return Err(VfsError::PermissionDenied {
                 path: "groups".to_string(),
             });
