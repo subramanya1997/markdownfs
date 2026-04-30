@@ -20,3 +20,6 @@ __pycache__/
 
 # MkDocs
 /site/
+
+# Hugging Face Space deploy clone
+/.hf-space/
