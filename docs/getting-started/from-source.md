@@ -128,7 +128,7 @@ curl http://localhost:3000/fs/notes/readme.md
 curl http://localhost:3000/health
 ```
 
-See the [HTTP API Guide](http-api-guide.md) for the full endpoint reference.
+See the [HTTP API Guide](../api/http.md) for the full endpoint reference.
 
 ## First Run — MCP Server
 
@@ -153,7 +153,7 @@ The MCP server communicates over stdio. Add it to your MCP client config — for
 }
 ```
 
-See the [MCP Guide](mcp-guide.md) for tool descriptions and usage.
+See the [MCP Guide](../api/mcp.md) for tool descriptions and usage.
 
 ## Configuration
 
@@ -210,8 +210,8 @@ All files, users, and version history are restored from the previous session.
 
 ## What's Next
 
-- [User Management](user-management.md) — create users, groups, set permissions
-- [Filesystem Guide](filesystem-guide.md) — files, directories, search, pipes
-- [Version Control](version-control.md) — commit, log, revert
-- [HTTP API Guide](http-api-guide.md) — REST endpoints with curl examples
-- [MCP Guide](mcp-guide.md) — AI agent integration
+- [Users & permissions](../concepts/users.md) — create users, groups, set permissions
+- [Virtual filesystem](../concepts/filesystem.md) — files, directories, search, pipes
+- [Versioning](../concepts/versioning.md) — commit, log, revert
+- [HTTP API](../api/http.md) — REST endpoints with curl examples
+- [MCP for agents](../api/mcp.md) — AI agent integration

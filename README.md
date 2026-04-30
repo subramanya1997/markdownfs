@@ -296,6 +296,18 @@ cargo test --test permissions     # 72 permission tests
 cargo test --test perf --release  # 37 perf benchmarks
 ```
 
+## Docs site
+
+The MkDocs source lives in `docs/`. Build locally with:
+
+```bash
+uv sync
+uv run mkdocs serve   # http://localhost:8000
+uv run mkdocs build --strict
+```
+
+CI deploys to [docs.markdownfs.com](https://docs.markdownfs.com/) on every push to `master`. See `.github/workflows/docs.yml`.
+
 ## License
 
 MIT

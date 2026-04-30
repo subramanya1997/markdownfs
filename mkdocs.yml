@@ -3,9 +3,14 @@ site_description: A versioned virtual filesystem for markdown, designed for AI a
 site_url: https://docs.markdownfs.com/
 repo_url: https://github.com/subramanya1997/markdownfs
 repo_name: subramanya1997/markdownfs
-edit_uri: edit/master/docs-site/docs/
+edit_uri: edit/master/docs/
 
 docs_dir: docs
+
+validation:
+  nav:
+    omitted_files: ignore
+    not_found: warn
 
 theme:
   name: material
@@ -54,7 +59,6 @@ markdown_extensions:
   - pymdownx.snippets:
       base_path:
         - .
-        - ..
 
 plugins:
   - search

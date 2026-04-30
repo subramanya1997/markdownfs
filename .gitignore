@@ -19,4 +19,4 @@ __pycache__/
 .pytest_cache/
 
 # MkDocs
-docs-site/site/
+/site/

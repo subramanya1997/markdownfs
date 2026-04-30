@@ -1,1 +1,0 @@
---8<-- "docs/http-api-guide.md"
