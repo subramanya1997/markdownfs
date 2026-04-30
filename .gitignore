@@ -6,3 +6,17 @@
 *.swo
 *~
 .DS_Store
+
+# Node / Bun
+node_modules/
+clients/typescript/dist/
+*.log
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# MkDocs
+docs-site/site/

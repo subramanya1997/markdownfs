@@ -1,0 +1,31 @@
+{
+  "name": "markdownfs",
+  "version": "0.1.0",
+  "description": "TypeScript client for MarkdownFS — a versioned virtual filesystem for markdown.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target node --format esm && bun run build:types",
+    "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly --outDir dist",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
+  },
+  "engines": { "node": ">=18", "bun": ">=1.0" },
+  "keywords": ["markdown", "filesystem", "agent", "vcs", "markdownfs"],
+  "repository": "github:subramanya1997/markdownfs",
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.6.0"
+  }
+}

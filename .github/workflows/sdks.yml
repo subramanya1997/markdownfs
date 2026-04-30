@@ -1,0 +1,39 @@
+name: SDK tests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "clients/**"
+      - ".github/workflows/sdks.yml"
+  pull_request:
+    paths:
+      - "clients/**"
+      - ".github/workflows/sdks.yml"
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/typescript
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run build
+
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --extra dev
+      - run: uv run pytest -q

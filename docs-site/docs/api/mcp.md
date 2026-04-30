@@ -1,0 +1,1 @@
+--8<-- "docs/mcp-guide.md"

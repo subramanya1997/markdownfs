@@ -1,0 +1,1 @@
+--8<-- "clients/python/README.md"

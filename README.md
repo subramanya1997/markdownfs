@@ -8,15 +8,19 @@ Only Markdown (`.md`) files are supported by design.
 
 ## Access Methods
 
-mdfs can be used three ways:
+mdfs can be used five ways:
 
-| Method | Binary | Use Case |
+| Method | Surface | Use Case |
 |---|---|---|
-| **CLI/REPL** | `markdownfs` | Interactive terminal use |
-| **HTTP/REST API** | `mdfs-server` | Web apps, services, any HTTP client |
-| **MCP Server** | `mdfs-mcp` | AI agents (Cursor, Claude, etc.) |
+| **CLI/REPL** | `markdownfs` binary | Interactive terminal use |
+| **HTTP/REST API** | `mdfs-server` binary | Web apps, services, any HTTP client |
+| **MCP Server** | `mdfs-mcp` binary | AI agents (Cursor, Claude, etc.) |
+| **TypeScript SDK** | `markdownfs` on npm | Node 18+ / browsers, via Bun or npm |
+| **Python SDK** | `markdownfs` on PyPI | Python 3.9+, sync and async |
 
-All three share the same concurrent core (`MarkdownDb`) with `tokio::RwLock` for safe multi-reader/single-writer access.
+All transports share the same concurrent core (`MarkdownDb`) with `tokio::RwLock` for safe multi-reader/single-writer access.
+
+📚 **Full documentation:** [docs.markdownfs.com](https://docs.markdownfs.com/)
 
 ## Quick Start
 

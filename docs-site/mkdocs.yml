@@ -1,0 +1,83 @@
+site_name: MarkdownFS
+site_description: A versioned virtual filesystem for markdown, designed for AI agents.
+site_url: https://docs.markdownfs.com/
+repo_url: https://github.com/subramanya1997/markdownfs
+repo_name: subramanya1997/markdownfs
+edit_uri: edit/master/docs-site/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - ..
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+      - Hugging Face deployment: getting-started/huggingface.md
+  - Concepts:
+      - Virtual filesystem: concepts/filesystem.md
+      - Versioning: concepts/versioning.md
+      - Users & permissions: concepts/users.md
+  - SDKs:
+      - TypeScript: sdks/typescript.md
+      - Python: sdks/python.md
+      - Rust: sdks/rust.md
+  - HTTP API: api/http.md
+  - MCP for agents: api/mcp.md
+  - Deployment: deployment.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/subramanya1997/markdownfs
