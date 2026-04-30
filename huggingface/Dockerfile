@@ -4,7 +4,7 @@
 # Builds the `mdfs-server` REST binary and runs it on port 7860
 # (HF Spaces routes external traffic to this port by convention).
 
-FROM rust:1.86-slim-bookworm AS builder
+FROM rust:1.90-slim-bookworm AS builder
 
 WORKDIR /build
 
