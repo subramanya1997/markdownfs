@@ -243,9 +243,36 @@ async function openFile(path, itemEl) {
     $("edit").hidden = false;
     $("save").hidden = true;
     $("cancel").hidden = true;
+    // Fetch metadata and show mode/owner
+    try {
+      const stRes = await api("GET", `/fs/${encodeSegments(path)}?stat=true`);
+      const st = await stRes.json();
+      state.selectedMode = st.mode;
+      const owner = await uidToName(st.uid);
+      state.selectedOwner = owner;
+      $("file-meta").textContent = `${st.mode} ${owner}`;
+    } catch {
+      $("file-meta").textContent = "";
+    }
   } catch (e) {
     toast(`open: ${e.message}`, true);
   }
+}
+
+let userNameCache = null;
+async function uidToName(uid) {
+  if (uid === 0) return "root";
+  if (!state.isAdmin) return `uid=${uid}`;
+  if (!userNameCache) {
+    try {
+      const res = await api("GET", "/admin/users");
+      const data = await res.json();
+      userNameCache = new Map((data.users || []).map((u) => [u.uid, u.name]));
+    } catch {
+      return `uid=${uid}`;
+    }
+  }
+  return userNameCache.get(uid) || `uid=${uid}`;
 }
 
 function startEdit() {
@@ -401,6 +428,33 @@ function bind() {
     $("commits-panel").classList.toggle("collapsed");
   });
   $("logout").addEventListener("click", logout);
+  $("users-btn").addEventListener("click", openUsersPanel);
+  $("users-close").addEventListener("click", closeUsersPanel);
+  $("chmod-btn").addEventListener("click", openChmodModal);
+  $("chmod-cancel").addEventListener("click", closeChmodModal);
+  $("chown-btn").addEventListener("click", openChownModal);
+  $("chown-cancel").addEventListener("click", closeChownModal);
+
+  $("add-user-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("add-user-name").value.trim();
+    const isAgent = $("add-user-agent").checked;
+    if (!name) return;
+    await createUser(name, isAgent);
+    $("add-user-name").value = "";
+    $("add-user-agent").checked = false;
+    userNameCache = null;
+  });
+
+  $("chmod-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    applyChmod($("chmod-mode").value.trim());
+  });
+
+  $("chown-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    applyChown($("chown-owner").value.trim(), $("chown-group").value.trim());
+  });
 
   $("bootstrap-form").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -452,6 +506,189 @@ async function loadWorkspace() {
   await refreshHeader();
   await renderTree();
   await refreshCommits();
+}
+
+// ---------- admin panel ----------
+
+function openUsersPanel() {
+  $("modal-backdrop").hidden = false;
+  $("users-modal").hidden = false;
+  $("bootstrap-modal").hidden = true;
+  $("login-modal").hidden = true;
+  $("new-token-display").hidden = true;
+  refreshUsersTable();
+}
+
+function closeUsersPanel() {
+  $("users-modal").hidden = true;
+  hideBackdrop();
+}
+
+async function refreshUsersTable() {
+  try {
+    const res = await api("GET", "/admin/users");
+    const data = await res.json();
+    const tbody = $("users-tbody");
+    tbody.innerHTML = "";
+    for (const u of data.users || []) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="muted">${u.uid}</td>
+        <td><strong></strong> <span class="muted small"></span></td>
+        <td class="user-groups"></td>
+        <td class="${u.has_token ? "has-token" : "no-token"}"></td>
+        <td class="actions-cell"></td>
+      `;
+      tr.querySelector("strong").textContent = u.name;
+      if (u.is_agent) tr.querySelector(".small").textContent = "(agent)";
+      tr.querySelector(".user-groups").textContent = u.groups.join(", ");
+      tr.querySelector("td.has-token, td.no-token").textContent = u.has_token ? "✓" : "—";
+
+      const actions = tr.querySelector(".actions-cell");
+      const tokBtn = document.createElement("button");
+      tokBtn.textContent = u.has_token ? "regen token" : "issue token";
+      tokBtn.addEventListener("click", () => issueToken(u.name));
+      actions.append(tokBtn);
+
+      const grpBtn = document.createElement("button");
+      grpBtn.textContent = "+group";
+      grpBtn.addEventListener("click", () => addUserToGroup(u.name));
+      actions.append(grpBtn);
+
+      if (u.uid !== 0) {
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "delete";
+        delBtn.className = "danger";
+        delBtn.addEventListener("click", () => deleteUser(u.name));
+        actions.append(delBtn);
+      }
+      tbody.append(tr);
+    }
+  } catch (e) {
+    toast(`users: ${e.message}`, true);
+  }
+}
+
+async function createUser(name, isAgent) {
+  try {
+    const res = await api("POST", "/admin/users", {
+      json: { name, is_agent: isAgent },
+    });
+    const data = await res.json();
+    if (data.token) showNewToken(data.name, data.token);
+    await refreshUsersTable();
+    return data;
+  } catch (e) {
+    toast(`add user: ${e.message}`, true);
+  }
+}
+
+async function issueToken(name) {
+  try {
+    const res = await api("POST", `/admin/users/${encodeURIComponent(name)}/tokens`);
+    const data = await res.json();
+    showNewToken(data.name, data.token);
+    await refreshUsersTable();
+  } catch (e) {
+    toast(`token: ${e.message}`, true);
+  }
+}
+
+async function deleteUser(name) {
+  if (!confirm(`Delete user '${name}' and all their data?`)) return;
+  try {
+    await api("DELETE", `/admin/users/${encodeURIComponent(name)}`);
+    await refreshUsersTable();
+    toast(`deleted ${name}`);
+  } catch (e) {
+    toast(`delete: ${e.message}`, true);
+  }
+}
+
+async function addUserToGroup(name) {
+  const group = prompt(`Add ${name} to which group?`);
+  if (!group) return;
+  try {
+    await api(
+      "POST",
+      `/admin/users/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}`,
+    );
+    await refreshUsersTable();
+    toast(`added ${name} to ${group}`);
+  } catch (e) {
+    toast(`group: ${e.message}`, true);
+  }
+}
+
+function showNewToken(name, token) {
+  $("new-token-user").textContent = name;
+  $("new-token-value").textContent = token;
+  $("new-token-display").hidden = false;
+}
+
+// ---------- chmod / chown ----------
+
+function modeBitsFromOctal(s) {
+  const cleaned = s.trim();
+  if (!/^0?[0-7]{3,4}$/.test(cleaned)) return null;
+  return parseInt(cleaned, 8);
+}
+
+function openChmodModal() {
+  if (!state.selected) return;
+  $("modal-backdrop").hidden = false;
+  $("chmod-modal").hidden = false;
+  $("chmod-path").textContent = state.selected;
+  $("chmod-mode").value = state.selectedMode || "0644";
+  $("chmod-mode").focus();
+}
+
+function closeChmodModal() {
+  $("chmod-modal").hidden = true;
+  hideBackdrop();
+}
+
+function openChownModal() {
+  if (!state.selected) return;
+  $("modal-backdrop").hidden = false;
+  $("chown-modal").hidden = false;
+  $("chown-path").textContent = state.selected;
+  $("chown-owner").value = state.selectedOwner || "";
+  $("chown-group").value = "";
+  $("chown-owner").focus();
+}
+
+function closeChownModal() {
+  $("chown-modal").hidden = true;
+  hideBackdrop();
+}
+
+async function applyChmod(modeStr) {
+  if (!state.selected) return;
+  try {
+    await api("POST", `/admin/chmod/${encodeSegments(state.selected)}`, {
+      json: { mode: modeStr },
+    });
+    toast(`chmod ${modeStr} ${state.selected}`);
+    closeChmodModal();
+    await openFile(state.selected, document.querySelector(".tree-item.selected"));
+  } catch (e) {
+    toast(`chmod: ${e.message}`, true);
+  }
+}
+
+async function applyChown(owner, group) {
+  if (!state.selected) return;
+  try {
+    await api("POST", `/admin/chown/${encodeSegments(state.selected)}`, {
+      json: { owner, group: group || null },
+    });
+    toast(`chown ${owner} ${state.selected}`);
+    closeChownModal();
+    await openFile(state.selected, document.querySelector(".tree-item.selected"));
+  } catch (e) {
+    toast(`chown: ${e.message}`, true);
+  }
 }
 
 async function init() {

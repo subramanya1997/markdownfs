@@ -39,9 +39,12 @@
         <div id="path-bar">
           <span id="current-path" class="muted">no file selected</span>
           <span id="file-actions" hidden>
+            <span id="file-meta" class="muted small"></span>
             <button id="edit">edit</button>
             <button id="save" hidden>save</button>
             <button id="cancel" hidden>cancel</button>
+            <button id="chmod-btn">chmod</button>
+            <button id="chown-btn">chown</button>
             <button id="delete" class="danger">delete</button>
           </span>
         </div>
@@ -95,6 +98,58 @@
             <input id="login-username" type="text" autocomplete="username" placeholder="username" />
           </label>
           <button type="submit" class="primary">Sign in</button>
+        </form>
+      </div>
+
+      <div id="users-modal" class="modal modal-wide" hidden>
+        <div class="modal-head">
+          <h2>Users &amp; groups</h2>
+          <button id="users-close" class="link-btn">close</button>
+        </div>
+        <form id="add-user-form" class="inline-form">
+          <input id="add-user-name" type="text" placeholder="username" required />
+          <label class="inline-check">
+            <input id="add-user-agent" type="checkbox" /> agent
+          </label>
+          <button type="submit" class="primary">add user</button>
+        </form>
+        <div id="new-token-display" hidden class="token-banner">
+          <strong>New token for <span id="new-token-user"></span>:</strong>
+          <pre id="new-token-value" class="token-display"></pre>
+          <p class="muted small">Save it now — it won't be shown again.</p>
+        </div>
+        <table class="users-table">
+          <thead>
+            <tr><th>uid</th><th>name</th><th>groups</th><th>token</th><th>actions</th></tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="chmod-modal" class="modal" hidden>
+        <h2>Change permissions</h2>
+        <p class="muted small" id="chmod-path"></p>
+        <form id="chmod-form">
+          <label>Mode (octal)
+            <input id="chmod-mode" type="text" placeholder="0644" required pattern="0?[0-7]{3,4}" />
+          </label>
+          <button type="submit" class="primary">chmod</button>
+          <button type="button" id="chmod-cancel">cancel</button>
+        </form>
+      </div>
+
+      <div id="chown-modal" class="modal" hidden>
+        <h2>Change owner</h2>
+        <p class="muted small" id="chown-path"></p>
+        <form id="chown-form">
+          <label>Owner (username)
+            <input id="chown-owner" type="text" required />
+          </label>
+          <label>Group (optional)
+            <input id="chown-group" type="text" placeholder="(defaults to owner's primary group)" />
+          </label>
+          <button type="submit" class="primary">chown</button>
+          <button type="button" id="chown-cancel">cancel</button>
         </form>
       </div>
     </div>
