@@ -1,4 +1,5 @@
 pub mod middleware;
+pub mod perms;
 pub mod routes_auth;
 pub mod routes_fs;
 pub mod routes_vcs;

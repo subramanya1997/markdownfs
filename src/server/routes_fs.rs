@@ -7,7 +7,11 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use super::middleware::session_from_headers;
+use super::perms::{require_parent_write, require_perm};
 use super::AppState;
+use crate::auth::perms::Access;
+use crate::auth::session::Session;
+use crate::error::VfsError;
 
 #[derive(Deserialize, Default)]
 pub struct FsQuery {
@@ -29,34 +33,59 @@ fn err_json(status: StatusCode, msg: impl Into<String>) -> impl IntoResponse {
     (status, Json(serde_json::json!({"error": msg.into()})))
 }
 
-fn parent_path(path: &str) -> Option<String> {
-    let trimmed = path.trim_end_matches('/');
-    let idx = trimmed.rfind('/')?;
-    Some(trimmed[..idx].to_string())
+fn vfs_status(err: &VfsError) -> StatusCode {
+    match err {
+        VfsError::PermissionDenied { .. } => StatusCode::FORBIDDEN,
+        VfsError::NotFound { .. } => StatusCode::NOT_FOUND,
+        _ => StatusCode::BAD_REQUEST,
+    }
+}
+
+fn vfs_err(e: VfsError) -> axum::response::Response {
+    err_json(vfs_status(&e), e.to_string()).into_response()
+}
+
+async fn auth_or_403(state: &AppState, headers: &HeaderMap) -> Result<Session, axum::response::Response> {
+    session_from_headers(state, headers)
+        .await
+        .map_err(|e| err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response())
 }
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/fs", get(get_fs_root))
-        .route("/fs/{*path}", get(get_fs).put(put_fs).delete(delete_fs).post(post_fs))
+        .route(
+            "/fs/{*path}",
+            get(get_fs).put(put_fs).delete(delete_fs).post(post_fs),
+        )
         .route("/search/grep", get(search_grep))
         .route("/search/find", get(search_find))
         .route("/tree", get(get_tree_root))
         .route("/tree/{*path}", get(get_tree))
 }
 
-async fn get_fs_root(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    let _session = match session_from_headers(&state, &headers).await {
+async fn get_fs_root(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
 
+    if let Err(e) = require_perm(&state.db, &session, "/", Access::Read).await {
+        return vfs_err(e);
+    }
+
     match state.db.ls(None).await {
-        Ok(entries) => Json(ls_to_json(&entries, "/")).into_response(),
-        Err(e) => err_json(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Ok(entries) => {
+            let filtered: Vec<_> = entries
+                .into_iter()
+                .filter(|e| {
+                    session.is_effectively_root()
+                        || session.has_permission_bits(e.mode, e.uid, e.gid, Access::Read)
+                })
+                .collect();
+            Json(ls_to_json(&filtered, "/")).into_response()
+        }
+        Err(e) => vfs_err(e),
     }
 }
 
@@ -66,10 +95,18 @@ async fn get_fs(
     Query(query): Query<FsQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
+
+    let exists = match require_perm(&state.db, &session, &path, Access::Read).await {
+        Ok(found) => found,
+        Err(e) => return vfs_err(e),
+    };
+    if !exists {
+        return err_json(StatusCode::NOT_FOUND, format!("not found: {path}")).into_response();
+    }
 
     if query.stat.unwrap_or(false) {
         return match state.db.stat(&path).await {
@@ -84,24 +121,31 @@ async fn get_fs(
                 "modified": info.modified,
             }))
             .into_response(),
-            Err(e) => err_json(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+            Err(e) => vfs_err(e),
         };
     }
 
     match state.db.cat(&path).await {
-        Ok(content) => {
-            (StatusCode::OK, [("content-type", "text/markdown")], Body::from(content))
-                .into_response()
-        }
-        Err(crate::error::VfsError::IsDirectory { .. }) => {
-            match state.db.ls(Some(&path)).await {
-                Ok(entries) => Json(ls_to_json(&entries, &path)).into_response(),
-                Err(e) => {
-                    err_json(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
-                }
+        Ok(content) => (
+            StatusCode::OK,
+            [("content-type", "text/markdown")],
+            Body::from(content),
+        )
+            .into_response(),
+        Err(VfsError::IsDirectory { .. }) => match state.db.ls(Some(&path)).await {
+            Ok(entries) => {
+                let filtered: Vec<_> = entries
+                    .into_iter()
+                    .filter(|e| {
+                        session.is_effectively_root()
+                            || session.has_permission_bits(e.mode, e.uid, e.gid, Access::Read)
+                    })
+                    .collect();
+                Json(ls_to_json(&filtered, &path)).into_response()
             }
-        }
-        Err(e) => err_json(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+            Err(e) => vfs_err(e),
+        },
+        Err(e) => vfs_err(e),
     }
 }
 
@@ -111,9 +155,9 @@ async fn put_fs(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    let session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
 
     let is_dir = headers
@@ -122,31 +166,46 @@ async fn put_fs(
         .map(|v| v == "directory")
         .unwrap_or(false);
 
+    let target_exists = state.db.stat(&path).await.is_ok();
+
+    if target_exists {
+        if let Err(e) = require_perm(&state.db, &session, &path, Access::Write).await {
+            return vfs_err(e);
+        }
+    } else if let Err(e) = require_parent_write(&state.db, &session, &path).await {
+        return vfs_err(e);
+    }
+
+    let uid = session.effective_uid();
+    let gid = session.effective_gid();
+
     if is_dir {
-        match state.db.mkdir_p(&path, session.uid, session.gid).await {
+        match state.db.mkdir_p(&path, uid, gid).await {
             Ok(()) => {
                 Json(serde_json::json!({"created": path, "type": "directory"})).into_response()
             }
-            Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+            Err(e) => vfs_err(e),
         }
     } else {
-        if state.db.stat(&path).await.is_err() {
-            if let Some(parent) = parent_path(&path) {
-                if !parent.is_empty() && state.db.stat(&parent).await.is_err() {
-                    if let Err(e) = state.db.mkdir_p(&parent, session.uid, session.gid).await {
-                        return err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        if !target_exists {
+            let trimmed = path.trim_end_matches('/');
+            if let Some(idx) = trimmed.rfind('/') {
+                let parent = &trimmed[..idx];
+                if !parent.is_empty() && state.db.stat(parent).await.is_err() {
+                    if let Err(e) = state.db.mkdir_p(parent, uid, gid).await {
+                        return vfs_err(e);
                     }
                 }
             }
-            if let Err(e) = state.db.touch(&path, session.uid, session.gid).await {
-                return err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response();
+            if let Err(e) = state.db.touch(&path, uid, gid).await {
+                return vfs_err(e);
             }
         }
 
         let size = body.len();
         match state.db.write_file(&path, body.to_vec()).await {
             Ok(()) => Json(serde_json::json!({"written": path, "size": size})).into_response(),
-            Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+            Err(e) => vfs_err(e),
         }
     }
 }
@@ -157,10 +216,19 @@ async fn delete_fs(
     Query(query): Query<FsQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
+
+    if let Err(e) = require_parent_write(&state.db, &session, &path).await {
+        return vfs_err(e);
+    }
+    if !session.is_effectively_root() {
+        if let Err(e) = require_perm(&state.db, &session, &path, Access::Write).await {
+            return vfs_err(e);
+        }
+    }
 
     let recursive = query.recursive.unwrap_or(false);
     let result = if recursive {
@@ -171,7 +239,7 @@ async fn delete_fs(
 
     match result {
         Ok(()) => Json(serde_json::json!({"deleted": path})).into_response(),
-        Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Err(e) => vfs_err(e),
     }
 }
 
@@ -181,33 +249,55 @@ async fn post_fs(
     Query(query): Query<FsQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
 
     match query.op.as_deref() {
         Some("copy") => {
             let dst = match &query.dst {
                 Some(d) => d.as_str(),
-                None => return err_json(StatusCode::BAD_REQUEST, "missing dst parameter").into_response(),
+                None => {
+                    return err_json(StatusCode::BAD_REQUEST, "missing dst parameter")
+                        .into_response()
+                }
             };
-            match state.db.cp(&path, dst, session.uid, session.gid).await {
+            if let Err(e) = require_perm(&state.db, &session, &path, Access::Read).await {
+                return vfs_err(e);
+            }
+            if let Err(e) = require_parent_write(&state.db, &session, dst).await {
+                return vfs_err(e);
+            }
+            let uid = session.effective_uid();
+            let gid = session.effective_gid();
+            match state.db.cp(&path, dst, uid, gid).await {
                 Ok(()) => Json(serde_json::json!({"copied": path, "to": dst})).into_response(),
-                Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+                Err(e) => vfs_err(e),
             }
         }
         Some("move") => {
             let dst = match &query.dst {
                 Some(d) => d.as_str(),
-                None => return err_json(StatusCode::BAD_REQUEST, "missing dst parameter").into_response(),
+                None => {
+                    return err_json(StatusCode::BAD_REQUEST, "missing dst parameter")
+                        .into_response()
+                }
             };
+            if let Err(e) = require_parent_write(&state.db, &session, &path).await {
+                return vfs_err(e);
+            }
+            if let Err(e) = require_parent_write(&state.db, &session, dst).await {
+                return vfs_err(e);
+            }
             match state.db.mv(&path, dst).await {
                 Ok(()) => Json(serde_json::json!({"moved": path, "to": dst})).into_response(),
-                Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+                Err(e) => vfs_err(e),
             }
         }
-        Some(op) => err_json(StatusCode::BAD_REQUEST, format!("unknown op: {op}")).into_response(),
+        Some(op) => {
+            err_json(StatusCode::BAD_REQUEST, format!("unknown op: {op}")).into_response()
+        }
         None => err_json(StatusCode::BAD_REQUEST, "missing op parameter").into_response(),
     }
 }
@@ -217,14 +307,16 @@ async fn search_grep(
     Query(query): Query<SearchQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
 
     let pattern = match &query.pattern {
         Some(p) => p.clone(),
-        None => return err_json(StatusCode::BAD_REQUEST, "missing pattern parameter").into_response(),
+        None => {
+            return err_json(StatusCode::BAD_REQUEST, "missing pattern parameter").into_response()
+        }
     };
 
     let path = query.path.as_deref();
@@ -238,7 +330,7 @@ async fn search_grep(
                 .collect();
             Json(serde_json::json!({"results": items, "count": items.len()})).into_response()
         }
-        Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Err(e) => vfs_err(e),
     }
 }
 
@@ -247,9 +339,9 @@ async fn search_find(
     Query(query): Query<SearchQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
 
     let path = query.path.as_deref();
@@ -259,21 +351,18 @@ async fn search_find(
         Ok(results) => {
             Json(serde_json::json!({"results": results, "count": results.len()})).into_response()
         }
-        Err(e) => err_json(StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Err(e) => vfs_err(e),
     }
 }
 
-async fn get_tree_root(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    let session = match session_from_headers(&state, &headers).await {
+async fn get_tree_root(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
     match state.db.tree(None, Some(&session)).await {
         Ok(tree) => (StatusCode::OK, tree).into_response(),
-        Err(e) => err_json(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+        Err(e) => vfs_err(e),
     }
 }
 
@@ -282,13 +371,13 @@ async fn get_tree(
     Path(path): Path<String>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let session = match session_from_headers(&state, &headers).await {
+    let session = match auth_or_403(&state, &headers).await {
         Ok(s) => s,
-        Err(e) => return err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response(),
+        Err(r) => return r,
     };
     match state.db.tree(Some(&path), Some(&session)).await {
         Ok(tree) => (StatusCode::OK, tree).into_response(),
-        Err(e) => err_json(StatusCode::NOT_FOUND, e.to_string()).into_response(),
+        Err(e) => vfs_err(e),
     }
 }
 
