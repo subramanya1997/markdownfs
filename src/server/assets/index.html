@@ -113,14 +113,15 @@
       <div id="users-modal" class="modal modal-wide" hidden>
         <div class="modal-head">
           <h2>Users &amp; groups</h2>
-          <button id="users-close" class="link-btn">close</button>
+          <button id="users-close" class="icon-btn" aria-label="close" title="close">×</button>
         </div>
-        <form id="add-user-form" class="inline-form">
-          <input id="add-user-name" type="text" placeholder="username" required />
-          <label class="inline-check">
-            <input id="add-user-agent" type="checkbox" /> agent
+        <form id="add-user-form" class="add-user-form">
+          <input id="add-user-name" type="text" placeholder="new username" autocomplete="off" required />
+          <label class="check-inline">
+            <input id="add-user-agent" type="checkbox" />
+            <span>agent</span>
           </label>
-          <button type="submit" class="primary">add user</button>
+          <button type="submit" class="primary">add</button>
         </form>
         <div id="new-token-display" hidden class="token-banner">
           <strong>New token for <span id="new-token-user"></span>:</strong>
