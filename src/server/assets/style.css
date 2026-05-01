@@ -221,6 +221,97 @@ ul#commits .hash { color: var(--accent); }
 ul#commits .author { color: var(--muted); }
 ul#commits .when { color: var(--muted); text-align: right; }
 
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: var(--bg);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.link-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+}
+.link-btn:hover { text-decoration: underline; background: transparent; }
+
+button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+.modal {
+  background: var(--panel);
+  padding: 28px 32px;
+  border-radius: 10px;
+  max-width: 460px;
+  width: 90%;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2);
+}
+.modal h2 { margin: 0 0 8px 0; font-size: 18px; }
+.modal h3 { margin: 16px 0 8px 0; font-size: 15px; }
+.modal p { margin: 0 0 16px 0; font-size: 13px; line-height: 1.5; }
+.modal p.small { font-size: 12px; }
+.modal label {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.modal input[type="text"],
+.modal input[type="password"] {
+  width: 100%;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+}
+.modal input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.modal button.primary {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  margin-top: 8px;
+}
+.token-display {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  user-select: all;
+}
+
 #toast {
   position: fixed;
   bottom: 24px;

@@ -17,6 +17,11 @@
         <input id="search" type="search" placeholder="Search content…" />
         <button id="new-file" title="New file">＋ new</button>
         <button id="commit" title="Commit working state">⎇ commit</button>
+        <button id="users-btn" title="Manage users" hidden>👥 users</button>
+        <span id="user-info" class="user-info" hidden>
+          <span id="user-name"></span>
+          <button id="logout" title="Log out" class="link-btn">log out</button>
+        </span>
       </div>
     </header>
 
@@ -55,6 +60,44 @@
     </footer>
 
     <div id="toast" hidden></div>
+
+    <div id="modal-backdrop" class="modal-backdrop" hidden>
+      <div id="bootstrap-modal" class="modal" hidden>
+        <h2>Welcome to MarkdownFS</h2>
+        <p class="muted">
+          This workspace has no users yet. Create the first administrator account to get started.
+          You'll receive an API token that grants full access — save it somewhere safe.
+        </p>
+        <form id="bootstrap-form">
+          <label>Admin username
+            <input id="bootstrap-username" type="text" required autocomplete="username" placeholder="admin" />
+          </label>
+          <button type="submit" class="primary">Create admin</button>
+        </form>
+        <div id="bootstrap-result" hidden>
+          <h3>✅ Admin created</h3>
+          <p class="muted">Save this token. It won't be shown again.</p>
+          <pre id="bootstrap-token" class="token-display"></pre>
+          <button id="bootstrap-continue" class="primary">Continue</button>
+        </div>
+      </div>
+
+      <div id="login-modal" class="modal" hidden>
+        <h2>Sign in</h2>
+        <form id="login-form">
+          <label>API token
+            <input id="login-token" type="password" required autocomplete="current-password" placeholder="paste your token" />
+          </label>
+          <p class="muted small">
+            Or sign in with username only (anonymous-style, no password):
+          </p>
+          <label>Username (no password)
+            <input id="login-username" type="text" autocomplete="username" placeholder="username" />
+          </label>
+          <button type="submit" class="primary">Sign in</button>
+        </form>
+      </div>
+    </div>
 
     <script src="/app.js"></script>
   </body>
