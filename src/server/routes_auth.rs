@@ -33,6 +33,7 @@ pub struct WhoAmI {
     pub gid: u32,
     pub groups: Vec<u32>,
     pub is_root: bool,
+    pub is_wheel: bool,
     pub authenticated: bool,
     pub on_behalf_of: Option<String>,
 }
@@ -99,12 +100,15 @@ async fn whoami(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
         .unwrap_or("");
     let authenticated = auth_header.starts_with("Bearer ") || auth_header.starts_with("User ");
 
+    let (is_wheel, _) = state.db.principal_flags(session.uid).await;
+
     Json(WhoAmI {
         username: session.username.clone(),
         uid: session.uid,
         gid: session.gid,
         groups: session.groups.clone(),
         is_root: session.is_effectively_root(),
+        is_wheel,
         authenticated,
         on_behalf_of: session.delegate.as_ref().map(|d| d.username.clone()),
     })

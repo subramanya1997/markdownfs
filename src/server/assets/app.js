@@ -140,7 +140,7 @@ async function refreshWhoAmI() {
     const res = await api("GET", "/auth/whoami");
     const w = await res.json();
     state.user = w;
-    state.isAdmin = w.is_root || (w.groups || []).includes(0);
+    state.isAdmin = w.is_root || w.is_wheel === true;
     $("user-info").hidden = false;
     let label = w.authenticated ? w.username : `${w.username} (anon)`;
     if (w.on_behalf_of) {
