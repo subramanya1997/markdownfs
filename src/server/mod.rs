@@ -2,6 +2,7 @@ pub mod middleware;
 pub mod routes_auth;
 pub mod routes_fs;
 pub mod routes_vcs;
+pub mod ui;
 
 use axum::Router;
 use std::sync::Arc;
@@ -23,6 +24,7 @@ pub fn build_router(db: MarkdownDb) -> Router {
     });
 
     Router::new()
+        .merge(ui::routes())
         .merge(routes_auth::routes())
         .merge(routes_fs::routes())
         .merge(routes_vcs::routes())

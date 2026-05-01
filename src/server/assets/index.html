@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>MarkdownFS</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="logo">📝</span>
+        <strong>MarkdownFS</strong>
+        <span id="counters" class="muted">loading…</span>
+      </div>
+      <div class="actions">
+        <input id="search" type="search" placeholder="Search content…" />
+        <button id="new-file" title="New file">＋ new</button>
+        <button id="commit" title="Commit working state">⎇ commit</button>
+      </div>
+    </header>
+
+    <main>
+      <aside id="tree-pane">
+        <div class="pane-title">Files</div>
+        <ul id="tree"></ul>
+        <div id="search-results" hidden>
+          <div class="pane-title">Search results</div>
+          <ul id="hits"></ul>
+        </div>
+      </aside>
+
+      <section id="viewer">
+        <div id="path-bar">
+          <span id="current-path" class="muted">no file selected</span>
+          <span id="file-actions" hidden>
+            <button id="edit">edit</button>
+            <button id="save" hidden>save</button>
+            <button id="cancel" hidden>cancel</button>
+            <button id="delete" class="danger">delete</button>
+          </span>
+        </div>
+        <pre id="content" hidden></pre>
+        <textarea id="editor" hidden spellcheck="false"></textarea>
+        <div id="placeholder" class="placeholder">
+          Pick a file from the tree to view it here.<br />
+          <span class="muted">Or click <strong>＋ new</strong> to create one.</span>
+        </div>
+      </section>
+    </main>
+
+    <footer id="commits-panel">
+      <div class="pane-title" id="commits-toggle">▼ Commits <span id="commit-count" class="muted"></span></div>
+      <ul id="commits"></ul>
+    </footer>
+
+    <div id="toast" hidden></div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
