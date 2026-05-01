@@ -1,4 +1,5 @@
 pub mod middleware;
+pub mod paths;
 pub mod perms;
 pub mod routes_admin;
 pub mod routes_auth;

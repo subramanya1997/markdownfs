@@ -42,8 +42,11 @@ pub async fn require_perm(
     }
 }
 
-/// Verify the session has write access to the parent directory of `path`.
-/// Used for create/delete/rename operations.
+/// Verify the session has write access to the directory under which `path`
+/// will be created. If the immediate parent doesn't exist yet (e.g., creating
+/// `notes/idea.md` when `notes/` is not yet there), walk up to the nearest
+/// existing ancestor — that's what `mkdir -p` semantics requires for perm
+/// checks. Used for create/delete/rename operations.
 pub async fn require_parent_write(
     db: &MarkdownDb,
     session: &Session,
@@ -52,16 +55,27 @@ pub async fn require_parent_write(
     if session.is_effectively_root() {
         return Ok(());
     }
-    let parent = parent_of(path);
-    let parent_path = if parent.is_empty() { "/" } else { parent.as_str() };
-    let info = db.stat(parent_path).await.map_err(|_| VfsError::NotFound {
-        path: parent_path.to_string(),
-    })?;
-    if session.has_permission_bits(info.mode, info.uid, info.gid, Access::Write) {
-        Ok(())
-    } else {
-        Err(VfsError::PermissionDenied {
-            path: parent_path.to_string(),
-        })
+    let mut current = parent_of(path);
+    loop {
+        let probe = if current.is_empty() { "/" } else { current.as_str() };
+        match db.stat(probe).await {
+            Ok(info) => {
+                if session.has_permission_bits(info.mode, info.uid, info.gid, Access::Write) {
+                    return Ok(());
+                }
+                return Err(VfsError::PermissionDenied {
+                    path: probe.to_string(),
+                });
+            }
+            Err(_) => {
+                if current.is_empty() {
+                    // Walked all the way up past root with no ancestor; pathological.
+                    return Err(VfsError::NotFound {
+                        path: path.to_string(),
+                    });
+                }
+                current = parent_of(&current);
+            }
+        }
     }
 }

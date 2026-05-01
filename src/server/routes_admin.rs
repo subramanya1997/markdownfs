@@ -6,6 +6,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use super::middleware::session_from_headers;
+use super::paths::resolve_user_path;
 use super::AppState;
 use crate::auth::session::Session;
 use crate::error::VfsError;
@@ -233,6 +234,7 @@ async fn chmod(
         Some(m) => m,
         None => return err_json(StatusCode::BAD_REQUEST, format!("invalid mode: {}", req.mode)).into_response(),
     };
+    let path = resolve_user_path(&s, &path);
     match state.db.admin_chmod(&s, &path, mode).await {
         Ok(()) => Json(serde_json::json!({"path": path, "mode": format!("0{:o}", mode)})).into_response(),
         Err(e) => vfs_err(e),
@@ -249,6 +251,7 @@ async fn chown(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let path = resolve_user_path(&s, &path);
     match state
         .db
         .admin_chown(&s, &path, &req.owner, req.group.as_deref())

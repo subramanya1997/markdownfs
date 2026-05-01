@@ -199,7 +199,10 @@ async function loadDir(path) {
 }
 
 function encodeSegments(p) {
-  return p.replace(/^(\.?\/)+|\/+$/g, "").split("/").map(encodeURIComponent).join("/");
+  const isAbs = p.startsWith("/");
+  const cleaned = p.replace(/^(\.?\/)+|\/+$/g, "");
+  const enc = cleaned.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+  return isAbs ? `/${enc}` : enc;
 }
 
 async function renderTree() {
@@ -221,7 +224,7 @@ async function renderDir(parent, path) {
   });
 
   for (const e of entries) {
-    const childPath = path ? `${path}/${e.name}` : e.name;
+    const childPath = path ? `${path}/${e.name}` : `/${e.name}`;
     const li = document.createElement("li");
     const item = document.createElement("div");
     item.className = "tree-item";
@@ -383,7 +386,10 @@ async function deleteFile() {
 }
 
 async function newFile() {
-  const path = prompt("New file path (e.g. notes/idea.md):");
+  const path = prompt(
+    "New file path. Relative paths land in your home; use a leading / for absolute.\n" +
+      "Example: notes/idea.md  →  /home/<you>/notes/idea.md",
+  );
   if (!path) return;
   try {
     await api("PUT", `/fs/${encodeSegments(path)}`, { body: "" });
@@ -456,7 +462,8 @@ function onSearchInput(e) {
         li.innerHTML = `<span class="file"></span><span class="line"></span>`;
         li.querySelector(".file").textContent = `${r.file}:${r.line_num}`;
         li.querySelector(".line").textContent = r.line.length > 100 ? r.line.slice(0, 100) + "…" : r.line;
-        li.addEventListener("click", () => openFile(r.file.replace(/^(\.?\/)+/, ""), null));
+        // grep results are returned as "./path"; treat them as absolute file locations
+        li.addEventListener("click", () => openFile("/" + r.file.replace(/^(\.?\/)+/, ""), null));
         ul.append(li);
       }
       $("search-results").hidden = false;

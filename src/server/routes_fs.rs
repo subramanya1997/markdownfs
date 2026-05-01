@@ -7,6 +7,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 
 use super::middleware::session_from_headers;
+use super::paths::resolve_user_path;
 use super::perms::{require_parent_write, require_perm};
 use super::AppState;
 use crate::auth::perms::Access;
@@ -106,6 +107,7 @@ async fn get_fs(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let path = resolve_user_path(&session, &path);
 
     let exists = match require_perm(&state.db, &session, &path, Access::Read).await {
         Ok(found) => found,
@@ -166,6 +168,7 @@ async fn put_fs(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let path = resolve_user_path(&session, &path);
 
     let is_dir = headers
         .get("x-markdownfs-type")
@@ -227,6 +230,7 @@ async fn delete_fs(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let path = resolve_user_path(&session, &path);
 
     if let Err(e) = require_parent_write(&state.db, &session, &path).await {
         return vfs_err(e);
@@ -260,44 +264,47 @@ async fn post_fs(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let path = resolve_user_path(&session, &path);
 
     match query.op.as_deref() {
         Some("copy") => {
-            let dst = match &query.dst {
+            let dst_raw = match &query.dst {
                 Some(d) => d.as_str(),
                 None => {
                     return err_json(StatusCode::BAD_REQUEST, "missing dst parameter")
                         .into_response()
                 }
             };
+            let dst = resolve_user_path(&session, dst_raw);
             if let Err(e) = require_perm(&state.db, &session, &path, Access::Read).await {
                 return vfs_err(e);
             }
-            if let Err(e) = require_parent_write(&state.db, &session, dst).await {
+            if let Err(e) = require_parent_write(&state.db, &session, &dst).await {
                 return vfs_err(e);
             }
             let uid = session.effective_uid();
             let gid = session.effective_gid();
-            match state.db.cp(&path, dst, uid, gid).await {
+            match state.db.cp(&path, &dst, uid, gid).await {
                 Ok(()) => Json(serde_json::json!({"copied": path, "to": dst})).into_response(),
                 Err(e) => vfs_err(e),
             }
         }
         Some("move") => {
-            let dst = match &query.dst {
+            let dst_raw = match &query.dst {
                 Some(d) => d.as_str(),
                 None => {
                     return err_json(StatusCode::BAD_REQUEST, "missing dst parameter")
                         .into_response()
                 }
             };
+            let dst = resolve_user_path(&session, dst_raw);
             if let Err(e) = require_parent_write(&state.db, &session, &path).await {
                 return vfs_err(e);
             }
-            if let Err(e) = require_parent_write(&state.db, &session, dst).await {
+            if let Err(e) = require_parent_write(&state.db, &session, &dst).await {
                 return vfs_err(e);
             }
-            match state.db.mv(&path, dst).await {
+            match state.db.mv(&path, &dst).await {
                 Ok(()) => Json(serde_json::json!({"moved": path, "to": dst})).into_response(),
                 Err(e) => vfs_err(e),
             }
@@ -326,7 +333,8 @@ async fn search_grep(
         }
     };
 
-    let path = query.path.as_deref();
+    let resolved = query.path.as_ref().map(|p| resolve_user_path(&session, p));
+    let path = resolved.as_deref();
     let recursive = query.recursive.unwrap_or(true);
 
     match state.db.grep(&pattern, path, recursive, Some(&session)).await {
@@ -351,7 +359,8 @@ async fn search_find(
         Err(r) => return r,
     };
 
-    let path = query.path.as_deref();
+    let resolved = query.path.as_ref().map(|p| resolve_user_path(&session, p));
+    let path = resolved.as_deref();
     let name = query.name.as_deref();
 
     match state.db.find(path, name, Some(&session)).await {
@@ -382,6 +391,7 @@ async fn get_tree(
         Ok(s) => s,
         Err(r) => return r,
     };
+    let path = resolve_user_path(&session, &path);
     match state.db.tree(Some(&path), Some(&session)).await {
         Ok(tree) => (StatusCode::OK, tree).into_response(),
         Err(e) => vfs_err(e),

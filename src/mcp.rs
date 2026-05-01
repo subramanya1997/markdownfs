@@ -7,6 +7,7 @@ use rmcp::{ErrorData as McpError, ServerHandler};
 use crate::auth::perms::Access;
 use crate::auth::session::Session;
 use crate::db::MarkdownDb;
+use crate::server::paths::resolve_user_path;
 
 #[derive(Clone)]
 pub struct McpServer {
@@ -126,18 +127,20 @@ impl McpServer {
     async fn handle_tool(&self, name: &str, args: &serde_json::Value) -> Result<String, String> {
         match name {
             "read_file" => {
-                let path = args["path"].as_str().ok_or("missing path")?;
-                self.require_read(path).await?;
-                let content = self.db.cat(path).await.map_err(|e| e.to_string())?;
+                let raw = args["path"].as_str().ok_or("missing path")?;
+                let path = resolve_user_path(&self.session, raw);
+                self.require_read(&path).await?;
+                let content = self.db.cat(&path).await.map_err(|e| e.to_string())?;
                 Ok(String::from_utf8_lossy(&content).into_owned())
             }
             "write_file" => {
-                let path = args["path"].as_str().ok_or("missing path")?;
+                let raw = args["path"].as_str().ok_or("missing path")?;
+                let path = resolve_user_path(&self.session, raw);
                 let content = args["content"].as_str().ok_or("missing content")?;
-                self.require_write(path).await?;
+                self.require_write(&path).await?;
                 let uid = self.session.effective_uid();
                 let gid = self.session.effective_gid();
-                if self.db.stat(path).await.is_err() {
+                if self.db.stat(&path).await.is_err() {
                     let trimmed = path.trim_end_matches('/');
                     if let Some(idx) = trimmed.rfind('/') {
                         let parent = &trimmed[..idx];
@@ -148,16 +151,20 @@ impl McpServer {
                                 .map_err(|e| e.to_string())?;
                         }
                     }
-                    self.db.touch(path, uid, gid).await.map_err(|e| e.to_string())?;
+                    self.db.touch(&path, uid, gid).await.map_err(|e| e.to_string())?;
                 }
                 self.db
-                    .write_file(path, content.as_bytes().to_vec())
+                    .write_file(&path, content.as_bytes().to_vec())
                     .await
                     .map_err(|e| e.to_string())?;
                 Ok(format!("Written {} bytes to {path}", content.len()))
             }
             "list_directory" => {
-                let path = args.get("path").and_then(|v| v.as_str());
+                let resolved = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(|p| resolve_user_path(&self.session, p));
+                let path = resolved.as_deref();
                 if let Some(p) = path {
                     self.require_read(p).await?;
                 }
@@ -178,7 +185,11 @@ impl McpServer {
             }
             "search_files" => {
                 let pattern = args["pattern"].as_str().ok_or("missing pattern")?;
-                let path = args.get("path").and_then(|v| v.as_str());
+                let resolved = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(|p| resolve_user_path(&self.session, p));
+                let path = resolved.as_deref();
                 let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(true);
                 let results = self
                     .db
@@ -195,7 +206,11 @@ impl McpServer {
                 Ok(out)
             }
             "find_files" => {
-                let path = args.get("path").and_then(|v| v.as_str());
+                let resolved = args
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .map(|p| resolve_user_path(&self.session, p));
+                let path = resolved.as_deref();
                 let name = args.get("name").and_then(|v| v.as_str());
                 let results = self
                     .db
@@ -205,31 +220,35 @@ impl McpServer {
                 Ok(results.join("\n"))
             }
             "create_directory" => {
-                let path = args["path"].as_str().ok_or("missing path")?;
-                self.require_parent_write(path).await?;
+                let raw = args["path"].as_str().ok_or("missing path")?;
+                let path = resolve_user_path(&self.session, raw);
+                self.require_parent_write(&path).await?;
                 let uid = self.session.effective_uid();
                 let gid = self.session.effective_gid();
-                self.db.mkdir_p(path, uid, gid).await.map_err(|e| e.to_string())?;
+                self.db.mkdir_p(&path, uid, gid).await.map_err(|e| e.to_string())?;
                 Ok(format!("Created directory: {path}"))
             }
             "delete_file" => {
-                let path = args["path"].as_str().ok_or("missing path")?;
+                let raw = args["path"].as_str().ok_or("missing path")?;
+                let path = resolve_user_path(&self.session, raw);
                 let recursive = args.get("recursive").and_then(|v| v.as_bool()).unwrap_or(false);
-                self.require_parent_write(path).await?;
+                self.require_parent_write(&path).await?;
                 if recursive {
-                    self.db.rm_rf(path).await
+                    self.db.rm_rf(&path).await
                 } else {
-                    self.db.rm(path).await
+                    self.db.rm(&path).await
                 }
                 .map_err(|e| e.to_string())?;
                 Ok(format!("Deleted: {path}"))
             }
             "move_file" => {
-                let src = args["source"].as_str().ok_or("missing source")?;
-                let dst = args["destination"].as_str().ok_or("missing destination")?;
-                self.require_parent_write(src).await?;
-                self.require_parent_write(dst).await?;
-                self.db.mv(src, dst).await.map_err(|e| e.to_string())?;
+                let src_raw = args["source"].as_str().ok_or("missing source")?;
+                let dst_raw = args["destination"].as_str().ok_or("missing destination")?;
+                let src = resolve_user_path(&self.session, src_raw);
+                let dst = resolve_user_path(&self.session, dst_raw);
+                self.require_parent_write(&src).await?;
+                self.require_parent_write(&dst).await?;
+                self.db.mv(&src, &dst).await.map_err(|e| e.to_string())?;
                 Ok(format!("Moved {src} -> {dst}"))
             }
             "commit" => {
