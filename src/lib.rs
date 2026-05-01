@@ -5,6 +5,7 @@ pub mod db;
 pub mod error;
 pub mod fs;
 pub mod io;
+pub mod mcp;
 pub mod persist;
 pub mod posix;
 pub mod server;
