@@ -7,7 +7,7 @@ sdk: docker
 app_port: 7860
 pinned: true
 license: mit
-short_description: Versioned markdown filesystem for AI agents — REST + MCP + UI in one binary.
+short_description: Versioned markdown FS for AI agents — REST + MCP + UI.
 tags:
   - agent
   - mcp
