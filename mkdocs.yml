@@ -79,6 +79,7 @@ nav:
       - Rust: sdks/rust.md
   - HTTP API: api/http.md
   - MCP for agents: api/mcp.md
+  - Integrations: integrations.md
   - Deployment: deployment.md
 
 extra:
