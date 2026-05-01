@@ -568,6 +568,8 @@ impl MarkdownDb {
         );
         let home_path = format!("/home/{name}");
         let _ = guard.fs.mkdir(&home_path, uid, gid);
+        // Lock the home dir down: only the owner can list/enter it.
+        let _ = guard.fs.chmod(&home_path, 0o700);
 
         drop(guard);
         self.mark_dirty();
@@ -682,6 +684,8 @@ impl MarkdownDb {
             .unwrap_or(0);
         let home = format!("/home/{name}");
         let _ = guard.fs.mkdir_p(&home, uid, gid);
+        // Lock the home dir down: only the owner can list/enter it.
+        let _ = guard.fs.chmod(&home, 0o700);
         drop(guard);
         self.mark_dirty();
         Ok(result)
