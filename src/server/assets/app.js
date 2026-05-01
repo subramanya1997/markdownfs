@@ -75,6 +75,36 @@ async function api(method, path, opts = {}) {
   return res;
 }
 
+async function copyToClipboard(text, btn) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.append(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    if (btn) {
+      const original = btn.textContent;
+      btn.textContent = "copied ✓";
+      btn.classList.add("copied");
+      setTimeout(() => {
+        btn.textContent = original;
+        btn.classList.remove("copied");
+      }, 1500);
+    }
+    return true;
+  } catch (e) {
+    toast(`copy failed: ${e.message}`, true);
+    return false;
+  }
+}
+
 function toast(msg, isError = false) {
   const el = $("toast");
   el.textContent = msg;
@@ -494,6 +524,14 @@ function bind() {
   $("bootstrap-continue").addEventListener("click", async () => {
     hideBackdrop();
     await loadWorkspace();
+  });
+
+  $("bootstrap-copy").addEventListener("click", (e) => {
+    copyToClipboard($("bootstrap-token").textContent, e.currentTarget);
+  });
+
+  $("new-token-copy").addEventListener("click", (e) => {
+    copyToClipboard($("new-token-value").textContent, e.currentTarget);
   });
 
   $("login-form").addEventListener("submit", async (e) => {

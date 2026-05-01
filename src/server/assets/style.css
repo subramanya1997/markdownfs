@@ -1,5 +1,8 @@
 * { box-sizing: border-box; }
 
+/* Force [hidden] to win over more-specific class display rules. */
+[hidden] { display: none !important; }
+
 :root {
   --bg: #fafafa;
   --panel: #ffffff;
@@ -391,7 +394,22 @@ button.primary:hover { background: var(--accent-hover); border-color: var(--acce
   word-break: break-all;
   white-space: pre-wrap;
   user-select: all;
+  flex: 1;
+  margin: 0;
 }
+.token-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+.copy-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  align-self: stretch;
+}
+.copy-btn.copied { color: #10b981; border-color: #10b981; }
 
 #toast {
   position: fixed;

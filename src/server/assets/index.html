@@ -80,7 +80,10 @@
         <div id="bootstrap-result" hidden>
           <h3>✅ Admin created</h3>
           <p class="muted">Save this token. It won't be shown again.</p>
-          <pre id="bootstrap-token" class="token-display"></pre>
+          <div class="token-row">
+            <pre id="bootstrap-token" class="token-display"></pre>
+            <button id="bootstrap-copy" type="button" class="copy-btn" title="Copy token">copy</button>
+          </div>
           <button id="bootstrap-continue" class="primary">Continue</button>
         </div>
       </div>
@@ -121,7 +124,10 @@
         </form>
         <div id="new-token-display" hidden class="token-banner">
           <strong>New token for <span id="new-token-user"></span>:</strong>
-          <pre id="new-token-value" class="token-display"></pre>
+          <div class="token-row">
+            <pre id="new-token-value" class="token-display"></pre>
+            <button id="new-token-copy" type="button" class="copy-btn" title="Copy token">copy</button>
+          </div>
           <p class="muted small">Save it now — it won't be shown again.</p>
         </div>
         <table class="users-table">
