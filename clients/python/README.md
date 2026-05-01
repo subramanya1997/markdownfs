@@ -59,12 +59,24 @@ MarkdownFS(
     *,
     token: str | None = None,
     username: str | None = None,
+    on_behalf_of: str | None = None,   # delegate to user / ":group" / "Bearer <tok>"
     timeout: float = 30.0,
     client: httpx.Client | None = None,
 )
 ```
 
 `AsyncMarkdownFS` mirrors the sync API and accepts an optional `httpx.AsyncClient`.
+
+### Agents acting on behalf of a user
+
+```python
+agent = MarkdownFS(
+    base_url=...,
+    token=os.environ["AGENT_TOKEN"],
+    on_behalf_of="alice",  # intersection semantics
+)
+agent.fs.read("home/alice/notes.md")
+```
 
 ### Top level
 
@@ -94,6 +106,18 @@ MarkdownFS(
 - `log()` → `{ commits }`
 - `revert(hash)`
 - `status()` → status text
+
+### `auth`
+
+- `whoami()` — session info (incl. `on_behalf_of`)
+- `bootstrap(username)` — first-run admin creation
+
+### `admin` (root or wheel only)
+
+- `admin.users.list()` / `create(name, is_agent=...)` / `delete(name)` / `issue_token(name)` / `add_to_group(name, group)` / `remove_from_group(name, group)`
+- `admin.groups.list()` / `create(name)` / `delete(name)`
+- `admin.chmod(path, mode)` — e.g. `mode="0644"`
+- `admin.chown(path, owner, group=None)`
 
 ### Errors
 

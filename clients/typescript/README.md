@@ -40,6 +40,8 @@ new MarkdownFS({
   baseUrl: string;        // required
   token?: string;         // Bearer token
   username?: string;      // alternative auth (User <name>)
+  onBehalfOf?: string;    // delegate: agent acting on behalf of a user/group
+                          // (intersection semantics; see CONTRACT.md)
   fetch?: typeof fetch;   // override (e.g. for testing)
   headers?: Record<string, string>;
 })
@@ -73,6 +75,30 @@ new MarkdownFS({
 - `log()` → `{ commits }`
 - `revert(hash)`
 - `status()` → status text
+
+### `auth`
+
+- `whoami()` → session info (incl. `on_behalf_of`)
+- `bootstrap(username)` → `{ username, token }` (first-run only)
+
+### `admin` (root or wheel only)
+
+- `admin.users.list()` / `create(name, { isAgent? })` / `delete(name)` / `issueToken(name)` / `addToGroup(name, group)` / `removeFromGroup(name, group)`
+- `admin.groups.list()` / `create(name)` / `delete(name)`
+- `admin.chmod(path, mode)` — e.g. `mode: "0644"`
+- `admin.chown(path, owner, { group? })`
+
+### Agents acting on behalf of a user
+
+```ts
+const agent = new MarkdownFS({
+  baseUrl,
+  token: process.env.AGENT_TOKEN,
+  onBehalfOf: "alice",   // or ":alice-group", or "Bearer <user-token>"
+});
+// Permissions are the *intersection* of agent and alice — least privilege.
+await agent.fs.read("home/alice/notes.md");
+```
 
 ### Errors
 

@@ -1,17 +1,25 @@
 import { MarkdownFSError } from "./errors.js";
 import type {
+  BootstrapResponse,
+  ChownOptions,
   ClientOptions,
   CommitResponse,
+  CreateUserOptions,
+  CreateUserResponse,
   FindOptions,
   FindResponse,
+  GroupSummary,
   GrepOptions,
   GrepResponse,
   HealthResponse,
+  IssueTokenResponse,
   ListResponse,
   LoginResponse,
   LogResponse,
   RemoveOptions,
   StatResponse,
+  UserSummary,
+  WhoAmI,
 } from "./types.js";
 
 const encodePath = (path: string): string =>
@@ -21,9 +29,12 @@ export class MarkdownFS {
   readonly fs: FsResource;
   readonly search: SearchResource;
   readonly vcs: VcsResource;
+  readonly auth: AuthResource;
+  readonly admin: AdminResource;
 
   private readonly baseUrl: string;
   private readonly authHeader?: string;
+  private readonly delegateHeader?: string;
   private readonly extraHeaders: Record<string, string>;
   private readonly fetchImpl: typeof fetch;
 
@@ -34,10 +45,13 @@ export class MarkdownFS {
     this.extraHeaders = opts.headers ?? {};
     if (opts.token) this.authHeader = `Bearer ${opts.token}`;
     else if (opts.username) this.authHeader = `User ${opts.username}`;
+    if (opts.onBehalfOf) this.delegateHeader = opts.onBehalfOf;
 
     this.fs = new FsResource(this);
     this.search = new SearchResource(this);
     this.vcs = new VcsResource(this);
+    this.auth = new AuthResource(this);
+    this.admin = new AdminResource(this);
   }
 
   async health(): Promise<HealthResponse> {
@@ -82,6 +96,7 @@ export class MarkdownFS {
 
     const headers: Record<string, string> = { ...this.extraHeaders, ...(init.headers ?? {}) };
     if (this.authHeader) headers.authorization = this.authHeader;
+    if (this.delegateHeader) headers["x-markdownfs-on-behalf-of"] = this.delegateHeader;
 
     let body = init.body;
     if (init.json !== undefined) {
@@ -206,5 +221,121 @@ class VcsResource {
   async status(): Promise<string> {
     const res = await this.client.rawRequest("GET", "/vcs/status");
     return res.text();
+  }
+}
+
+class AuthResource {
+  constructor(private readonly client: MarkdownFS) {}
+
+  async whoami(): Promise<WhoAmI> {
+    return this.client.requestJson<WhoAmI>("GET", "/auth/whoami");
+  }
+
+  async bootstrap(username: string): Promise<BootstrapResponse> {
+    return this.client.requestJson<BootstrapResponse>("POST", "/auth/bootstrap", {
+      json: { username },
+    });
+  }
+}
+
+class AdminResource {
+  readonly users: AdminUsersResource;
+  readonly groups: AdminGroupsResource;
+
+  constructor(private readonly client: MarkdownFS) {
+    this.users = new AdminUsersResource(client);
+    this.groups = new AdminGroupsResource(client);
+  }
+
+  async chmod(path: string, mode: string): Promise<void> {
+    await this.client.requestJson<void>(
+      "POST",
+      `/admin/chmod/${encodePath(path)}`,
+      { json: { mode } },
+    );
+  }
+
+  async chown(path: string, owner: string, opts: ChownOptions = {}): Promise<void> {
+    await this.client.requestJson<void>(
+      "POST",
+      `/admin/chown/${encodePath(path)}`,
+      { json: { owner, group: opts.group ?? null } },
+    );
+  }
+}
+
+class AdminUsersResource {
+  constructor(private readonly client: MarkdownFS) {}
+
+  async list(): Promise<UserSummary[]> {
+    const res = await this.client.requestJson<{ users: UserSummary[] }>(
+      "GET",
+      "/admin/users",
+    );
+    return res.users;
+  }
+
+  async create(
+    name: string,
+    opts: CreateUserOptions = {},
+  ): Promise<CreateUserResponse> {
+    return this.client.requestJson<CreateUserResponse>("POST", "/admin/users", {
+      json: { name, is_agent: opts.isAgent ?? false },
+    });
+  }
+
+  async delete(name: string): Promise<void> {
+    await this.client.requestJson<void>(
+      "DELETE",
+      `/admin/users/${encodeURIComponent(name)}`,
+    );
+  }
+
+  async issueToken(name: string): Promise<IssueTokenResponse> {
+    return this.client.requestJson<IssueTokenResponse>(
+      "POST",
+      `/admin/users/${encodeURIComponent(name)}/tokens`,
+    );
+  }
+
+  async addToGroup(name: string, group: string): Promise<void> {
+    await this.client.requestJson<void>(
+      "POST",
+      `/admin/users/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}`,
+    );
+  }
+
+  async removeFromGroup(name: string, group: string): Promise<void> {
+    await this.client.requestJson<void>(
+      "DELETE",
+      `/admin/users/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}`,
+    );
+  }
+}
+
+class AdminGroupsResource {
+  constructor(private readonly client: MarkdownFS) {}
+
+  async list(): Promise<GroupSummary[]> {
+    const res = await this.client.requestJson<{ groups: GroupSummary[] }>(
+      "GET",
+      "/admin/groups",
+    );
+    return res.groups;
+  }
+
+  async create(name: string): Promise<{ gid: number; name: string }> {
+    return this.client.requestJson<{ gid: number; name: string }>(
+      "POST",
+      "/admin/groups",
+      { json: { name } },
+    );
+  }
+
+  async delete(name: string): Promise<void> {
+    await this.client.requestJson<void>(
+      "DELETE",
+      `/admin/groups/${encodeURIComponent(name)}`,
+    );
   }
 }

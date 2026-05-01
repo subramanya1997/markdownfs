@@ -14,6 +14,7 @@ class MarkdownFS:
         *,
         token: Optional[str] = None,
         username: Optional[str] = None,
+        on_behalf_of: Optional[str] = None,
         timeout: float = 30.0,
         client: Optional[httpx.Client] = None,
     ) -> None:
@@ -24,6 +25,8 @@ class MarkdownFS:
         auth = build_auth_header(token, username)
         if auth:
             headers["authorization"] = auth
+        if on_behalf_of:
+            headers["x-markdownfs-on-behalf-of"] = on_behalf_of
         self._owns_client = client is None
         self._client = client or httpx.Client(
             base_url=self._base_url, headers=headers, timeout=timeout
@@ -34,6 +37,8 @@ class MarkdownFS:
         self.fs = FsResource(self)
         self.search = SearchResource(self)
         self.vcs = VcsResource(self)
+        self.auth = AuthResource(self)
+        self.admin = AdminResource(self)
 
     def __enter__(self) -> "MarkdownFS":
         return self
@@ -169,3 +174,98 @@ class VcsResource:
 
     def status(self) -> str:
         return self._client._request("GET", "/vcs/status").text
+
+
+class AuthResource:
+    def __init__(self, client: MarkdownFS) -> None:
+        self._client = client
+
+    def whoami(self) -> dict[str, Any]:
+        return self._client._request("GET", "/auth/whoami").json()
+
+    def bootstrap(self, username: str) -> dict[str, Any]:
+        return self._client._request(
+            "POST", "/auth/bootstrap", json={"username": username}
+        ).json()
+
+
+class AdminResource:
+    def __init__(self, client: MarkdownFS) -> None:
+        self._client = client
+        self.users = AdminUsersResource(client)
+        self.groups = AdminGroupsResource(client)
+
+    def chmod(self, path: str, mode: str) -> None:
+        from ._common import encode_path
+
+        self._client._request(
+            "POST", f"/admin/chmod/{encode_path(path)}", json={"mode": mode}
+        )
+
+    def chown(self, path: str, owner: str, *, group: Optional[str] = None) -> None:
+        from ._common import encode_path
+
+        self._client._request(
+            "POST",
+            f"/admin/chown/{encode_path(path)}",
+            json={"owner": owner, "group": group},
+        )
+
+
+class AdminUsersResource:
+    def __init__(self, client: MarkdownFS) -> None:
+        self._client = client
+
+    def list(self) -> list[dict[str, Any]]:
+        return self._client._request("GET", "/admin/users").json().get("users", [])
+
+    def create(self, name: str, *, is_agent: bool = False) -> dict[str, Any]:
+        return self._client._request(
+            "POST", "/admin/users", json={"name": name, "is_agent": is_agent}
+        ).json()
+
+    def delete(self, name: str) -> None:
+        from urllib.parse import quote
+
+        self._client._request("DELETE", f"/admin/users/{quote(name, safe='')}")
+
+    def issue_token(self, name: str) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        return self._client._request(
+            "POST", f"/admin/users/{quote(name, safe='')}/tokens"
+        ).json()
+
+    def add_to_group(self, name: str, group: str) -> None:
+        from urllib.parse import quote
+
+        self._client._request(
+            "POST",
+            f"/admin/users/{quote(name, safe='')}/groups/{quote(group, safe='')}",
+        )
+
+    def remove_from_group(self, name: str, group: str) -> None:
+        from urllib.parse import quote
+
+        self._client._request(
+            "DELETE",
+            f"/admin/users/{quote(name, safe='')}/groups/{quote(group, safe='')}",
+        )
+
+
+class AdminGroupsResource:
+    def __init__(self, client: MarkdownFS) -> None:
+        self._client = client
+
+    def list(self) -> list[dict[str, Any]]:
+        return self._client._request("GET", "/admin/groups").json().get("groups", [])
+
+    def create(self, name: str) -> dict[str, Any]:
+        return self._client._request(
+            "POST", "/admin/groups", json={"name": name}
+        ).json()
+
+    def delete(self, name: str) -> None:
+        from urllib.parse import quote
+
+        self._client._request("DELETE", f"/admin/groups/{quote(name, safe='')}")

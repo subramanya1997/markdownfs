@@ -14,6 +14,7 @@ class AsyncMarkdownFS:
         *,
         token: Optional[str] = None,
         username: Optional[str] = None,
+        on_behalf_of: Optional[str] = None,
         timeout: float = 30.0,
         client: Optional[httpx.AsyncClient] = None,
     ) -> None:
@@ -24,6 +25,8 @@ class AsyncMarkdownFS:
         auth = build_auth_header(token, username)
         if auth:
             headers["authorization"] = auth
+        if on_behalf_of:
+            headers["x-markdownfs-on-behalf-of"] = on_behalf_of
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
             base_url=self._base_url, headers=headers, timeout=timeout
@@ -34,6 +37,8 @@ class AsyncMarkdownFS:
         self.fs = AsyncFsResource(self)
         self.search = AsyncSearchResource(self)
         self.vcs = AsyncVcsResource(self)
+        self.auth = AsyncAuthResource(self)
+        self.admin = AsyncAdminResource(self)
 
     async def __aenter__(self) -> "AsyncMarkdownFS":
         return self
@@ -179,3 +184,116 @@ class AsyncVcsResource:
 
     async def status(self) -> str:
         return (await self._client._request("GET", "/vcs/status")).text
+
+
+class AsyncAuthResource:
+    def __init__(self, client: AsyncMarkdownFS) -> None:
+        self._client = client
+
+    async def whoami(self) -> dict[str, Any]:
+        return (await self._client._request("GET", "/auth/whoami")).json()
+
+    async def bootstrap(self, username: str) -> dict[str, Any]:
+        return (
+            await self._client._request(
+                "POST", "/auth/bootstrap", json={"username": username}
+            )
+        ).json()
+
+
+class AsyncAdminResource:
+    def __init__(self, client: AsyncMarkdownFS) -> None:
+        self._client = client
+        self.users = AsyncAdminUsersResource(client)
+        self.groups = AsyncAdminGroupsResource(client)
+
+    async def chmod(self, path: str, mode: str) -> None:
+        from ._common import encode_path
+
+        await self._client._request(
+            "POST", f"/admin/chmod/{encode_path(path)}", json={"mode": mode}
+        )
+
+    async def chown(
+        self, path: str, owner: str, *, group: Optional[str] = None
+    ) -> None:
+        from ._common import encode_path
+
+        await self._client._request(
+            "POST",
+            f"/admin/chown/{encode_path(path)}",
+            json={"owner": owner, "group": group},
+        )
+
+
+class AsyncAdminUsersResource:
+    def __init__(self, client: AsyncMarkdownFS) -> None:
+        self._client = client
+
+    async def list(self) -> list[dict[str, Any]]:
+        return (await self._client._request("GET", "/admin/users")).json().get(
+            "users", []
+        )
+
+    async def create(self, name: str, *, is_agent: bool = False) -> dict[str, Any]:
+        return (
+            await self._client._request(
+                "POST", "/admin/users", json={"name": name, "is_agent": is_agent}
+            )
+        ).json()
+
+    async def delete(self, name: str) -> None:
+        from urllib.parse import quote
+
+        await self._client._request(
+            "DELETE", f"/admin/users/{quote(name, safe='')}"
+        )
+
+    async def issue_token(self, name: str) -> dict[str, Any]:
+        from urllib.parse import quote
+
+        return (
+            await self._client._request(
+                "POST", f"/admin/users/{quote(name, safe='')}/tokens"
+            )
+        ).json()
+
+    async def add_to_group(self, name: str, group: str) -> None:
+        from urllib.parse import quote
+
+        await self._client._request(
+            "POST",
+            f"/admin/users/{quote(name, safe='')}/groups/{quote(group, safe='')}",
+        )
+
+    async def remove_from_group(self, name: str, group: str) -> None:
+        from urllib.parse import quote
+
+        await self._client._request(
+            "DELETE",
+            f"/admin/users/{quote(name, safe='')}/groups/{quote(group, safe='')}",
+        )
+
+
+class AsyncAdminGroupsResource:
+    def __init__(self, client: AsyncMarkdownFS) -> None:
+        self._client = client
+
+    async def list(self) -> list[dict[str, Any]]:
+        return (await self._client._request("GET", "/admin/groups")).json().get(
+            "groups", []
+        )
+
+    async def create(self, name: str) -> dict[str, Any]:
+        return (
+            await self._client._request(
+                "POST", "/admin/groups", json={"name": name}
+            )
+        ).json()
+
+    async def delete(self, name: str) -> None:
+        from urllib.parse import quote
+
+        await self._client._request(
+            "DELETE", f"/admin/groups/{quote(name, safe='')}"
+        )
