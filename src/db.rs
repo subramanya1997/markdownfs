@@ -484,7 +484,7 @@ impl MarkdownDb {
     // ─── Auth helpers ───
 
     pub async fn login(&self, username: &str) -> Result<Session, VfsError> {
-        let mut guard = self.inner.write().await;
+        let guard = self.inner.read().await;
         let uid = guard
             .registry_lookup_uid(username)
             .ok_or_else(|| VfsError::AuthError {
