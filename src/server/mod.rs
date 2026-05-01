@@ -53,6 +53,9 @@ pub fn build_router(db: MarkdownDb) -> Router {
 
     // Each new MCP session reads MCP_SESSION (set by mcp_handler) to seed
     // the McpServer with the right Session. Default to root if absent.
+    // disable_allowed_hosts: rmcp's default DNS-rebinding protection only
+    // permits localhost-style hosts; we're served from a public HTTPS host
+    // (e.g. *.hf.space) where this check is redundant.
     let mcp_service: McpService = StreamableHttpService::new(
         move || {
             let session = MCP_SESSION
@@ -61,7 +64,7 @@ pub fn build_router(db: MarkdownDb) -> Router {
             Ok(McpServer::with_session(mcp_db.clone(), session))
         },
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default(),
+        StreamableHttpServerConfig::default().disable_allowed_hosts(),
     );
 
     let mcp_router_state = McpRouterState {
