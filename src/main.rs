@@ -124,6 +124,7 @@ async fn login_flow(db: &MarkdownDb, rl: &mut DefaultEditor) -> Session {
                     }
                     match db.create_admin(&name).await {
                         Ok(session) => {
+                            db.cd_to_home(&name).await;
                             println!(
                                 "\nCreated admin '{}' (uid={}, groups=[{}, wheel])",
                                 session.username, session.uid, session.username
@@ -153,6 +154,7 @@ async fn login_flow(db: &MarkdownDb, rl: &mut DefaultEditor) -> Session {
                     }
                     match db.login(&name).await {
                         Ok(session) => {
+                            db.cd_to_home(&name).await;
                             println!(
                                 "Logged in as '{}' (uid={}, gid={})",
                                 session.username, session.uid, session.gid

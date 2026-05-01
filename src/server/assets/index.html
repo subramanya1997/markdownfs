@@ -89,13 +89,19 @@
         <h2>Sign in</h2>
         <form id="login-form">
           <label>API token
-            <input id="login-token" type="password" required autocomplete="current-password" placeholder="paste your token" />
+            <input id="login-token" type="password" autocomplete="current-password" placeholder="paste your token" />
           </label>
           <p class="muted small">
             Or sign in with username only (anonymous-style, no password):
           </p>
           <label>Username (no password)
             <input id="login-username" type="text" autocomplete="username" placeholder="username" />
+          </label>
+          <p class="muted small">
+            <strong>Agent mode</strong> — also act on behalf of another user (intersection of permissions):
+          </p>
+          <label>On behalf of
+            <input id="login-on-behalf-of" type="text" placeholder="(optional username or :group)" />
           </label>
           <button type="submit" class="primary">Sign in</button>
         </form>

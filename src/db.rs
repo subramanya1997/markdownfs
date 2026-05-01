@@ -502,12 +502,21 @@ impl MarkdownDb {
             user.name.clone(),
         );
 
-        let home_path = format!("/home/{username}");
-        if guard.fs.stat(&home_path).is_ok() {
-            let _ = guard.fs.cd(&home_path);
-        }
-
+        // Note: do not cd into the user's home here. fs.cwd is global state
+        // shared across requests; mutating it from login() would shift every
+        // other in-flight request's path resolution. The CLI does its own cd
+        // post-login via cd_to_home below.
         Ok(session)
+    }
+
+    /// CLI helper: change the global cwd to the given user's home dir,
+    /// if it exists. Safe only in single-tenant usages (CLI/REPL).
+    pub async fn cd_to_home(&self, username: &str) {
+        let mut guard = self.inner.write().await;
+        let home = format!("/home/{username}");
+        if guard.fs.stat(&home).is_ok() {
+            let _ = guard.fs.cd(&home);
+        }
     }
 
     pub async fn authenticate_token(&self, raw_token: &str) -> Result<Session, VfsError> {
@@ -582,6 +591,23 @@ impl MarkdownDb {
 
     pub fn snapshot_fs(&self) -> VirtualFs {
         self.inner.blocking_read().fs.clone()
+    }
+
+    pub async fn lookup_gid(&self, name: &str) -> Option<Gid> {
+        self.inner.read().await.fs.registry.lookup_gid(name)
+    }
+
+    /// Return (is_wheel_member, is_agent) for a uid.
+    pub async fn principal_flags(&self, uid: Uid) -> (bool, bool) {
+        let guard = self.inner.read().await;
+        let is_wheel = guard.fs.registry.is_wheel_member(uid);
+        let is_agent = guard
+            .fs
+            .registry
+            .get_user(uid)
+            .map(|u| u.is_agent)
+            .unwrap_or(false);
+        (is_wheel, is_agent)
     }
 
     // ---------- Admin operations (gated on wheel/root) ----------

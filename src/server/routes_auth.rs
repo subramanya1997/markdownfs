@@ -34,6 +34,7 @@ pub struct WhoAmI {
     pub groups: Vec<u32>,
     pub is_root: bool,
     pub authenticated: bool,
+    pub on_behalf_of: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -78,13 +79,17 @@ async fn whoami(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
     let session = match session_from_headers(&state, &headers).await {
         Ok(s) => s,
         Err(e) => {
+            let status = match e {
+                crate::error::VfsError::PermissionDenied { .. } => StatusCode::FORBIDDEN,
+                _ => StatusCode::UNAUTHORIZED,
+            };
             return (
-                StatusCode::UNAUTHORIZED,
+                status,
                 Json(ErrorResponse {
                     error: e.to_string(),
                 }),
             )
-                .into_response()
+                .into_response();
         }
     };
 
@@ -101,6 +106,7 @@ async fn whoami(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
         groups: session.groups.clone(),
         is_root: session.is_effectively_root(),
         authenticated,
+        on_behalf_of: session.delegate.as_ref().map(|d| d.username.clone()),
     })
     .into_response()
 }

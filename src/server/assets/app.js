@@ -3,6 +3,7 @@
 const $ = (id) => document.getElementById(id);
 const TOKEN_KEY = "mdfs.token";
 const USER_KEY = "mdfs.username";
+const OBO_KEY = "mdfs.onBehalfOf";
 
 const state = {
   expanded: new Set([""]),
@@ -10,6 +11,7 @@ const state = {
   editing: false,
   originalContent: "",
   token: localStorage.getItem(TOKEN_KEY) || null,
+  onBehalfOf: localStorage.getItem(OBO_KEY) || null,
   user: null,
   isAdmin: false,
 };
@@ -23,6 +25,16 @@ function setToken(token, username) {
     localStorage.removeItem(USER_KEY);
   }
   state.token = token;
+}
+
+function setOnBehalfOf(value) {
+  if (value) {
+    localStorage.setItem(OBO_KEY, value);
+    state.onBehalfOf = value;
+  } else {
+    localStorage.removeItem(OBO_KEY);
+    state.onBehalfOf = null;
+  }
 }
 
 async function api(method, path, opts = {}) {
@@ -41,6 +53,9 @@ async function api(method, path, opts = {}) {
       init.headers["authorization"] = `User ${state.usernameAuth}`;
     } else if (opts.username) {
       init.headers["authorization"] = `User ${opts.username}`;
+    }
+    if (state.onBehalfOf) {
+      init.headers["x-markdownfs-on-behalf-of"] = state.onBehalfOf;
     }
   }
   if (opts.headers) Object.assign(init.headers, opts.headers);
@@ -97,7 +112,11 @@ async function refreshWhoAmI() {
     state.user = w;
     state.isAdmin = w.is_root || (w.groups || []).includes(0);
     $("user-info").hidden = false;
-    $("user-name").textContent = w.authenticated ? w.username : `${w.username} (anon)`;
+    let label = w.authenticated ? w.username : `${w.username} (anon)`;
+    if (w.on_behalf_of) {
+      label += ` → ${w.on_behalf_of}`;
+    }
+    $("user-name").textContent = label;
     $("users-btn").hidden = !state.isAdmin;
     return w;
   } catch (e) {
@@ -137,6 +156,7 @@ async function tryLoginUsername(username) {
 
 function logout() {
   setToken(null);
+  setOnBehalfOf(null);
   state.usernameAuth = null;
   location.reload();
 }
@@ -480,7 +500,9 @@ function bind() {
     e.preventDefault();
     const token = $("login-token").value.trim();
     const username = $("login-username").value.trim();
+    const onBehalfOf = $("login-on-behalf-of").value.trim();
     try {
+      setOnBehalfOf(onBehalfOf || null);
       if (token) {
         setToken(token);
         await refreshWhoAmI();
@@ -496,6 +518,7 @@ function bind() {
       await loadWorkspace();
     } catch (err) {
       setToken(null);
+      setOnBehalfOf(null);
       toast(`login: ${err.message}`, true);
     }
   });

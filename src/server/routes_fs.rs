@@ -48,7 +48,13 @@ fn vfs_err(e: VfsError) -> axum::response::Response {
 async fn auth_or_403(state: &AppState, headers: &HeaderMap) -> Result<Session, axum::response::Response> {
     session_from_headers(state, headers)
         .await
-        .map_err(|e| err_json(StatusCode::UNAUTHORIZED, e.to_string()).into_response())
+        .map_err(|e| {
+            let status = match e {
+                VfsError::PermissionDenied { .. } => StatusCode::FORBIDDEN,
+                _ => StatusCode::UNAUTHORIZED,
+            };
+            err_json(status, e.to_string()).into_response()
+        })
 }
 
 pub fn routes() -> Router<AppState> {
