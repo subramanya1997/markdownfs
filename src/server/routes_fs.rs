@@ -86,6 +86,7 @@ async fn get_fs_root(State(state): State<AppState>, headers: HeaderMap) -> impl 
                 .into_iter()
                 .filter(|e| {
                     session.is_effectively_root()
+                        || session.can_read_anywhere()
                         || session.has_permission_bits(e.mode, e.uid, e.gid, Access::Read)
                 })
                 .collect();

@@ -23,7 +23,9 @@ pub async fn require_perm(
     path: &str,
     access: Access,
 ) -> Result<bool, VfsError> {
-    if session.is_effectively_root() {
+    if session.is_effectively_root()
+        || (matches!(access, Access::Read | Access::Execute) && session.can_read_anywhere())
+    {
         return Ok(db.stat(path).await.is_ok());
     }
     match db.stat(path).await {

@@ -55,7 +55,7 @@ fn try_run(line: &str, fs: &mut VirtualFs, session: &mut Session) -> Result<Stri
 ///
 /// Users:
 ///   - root (uid=0) — superuser
-///   - alice (uid=1) — member of: alice, engineering, wheel
+///   - alice (uid=1) — member of: alice, engineering (regular user; wheel = admin)
 ///   - bob (uid=2) — member of: bob, engineering
 ///   - carol (uid=3) — member of: carol, finance
 ///   - agent-x (uid=4) — agent, member of: agent-x, engineering
@@ -75,7 +75,6 @@ fn setup() -> (VirtualFs, Session, Session, Session, Session, Session) {
 
     // Group memberships
     run("usermod -aG engineering alice", &mut fs, &mut root);
-    run("usermod -aG wheel alice", &mut fs, &mut root);
     run("usermod -aG engineering bob", &mut fs, &mut root);
     run("usermod -aG finance carol", &mut fs, &mut root);
     run("usermod -aG engineering agent-x", &mut fs, &mut root);

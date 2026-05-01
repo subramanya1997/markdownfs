@@ -683,7 +683,13 @@ impl MarkdownDb {
             .map(|u| u.groups[0])
             .unwrap_or(0);
         let home = format!("/home/{name}");
+        let already_exists = guard.fs.stat(&home).is_ok();
         let _ = guard.fs.mkdir_p(&home, uid, gid);
+        // If the home directory was orphaned by a prior user with the same
+        // name (and a now-stale uid), reclaim it for the new account.
+        if already_exists {
+            let _ = guard.fs.chown(&home, uid, gid);
+        }
         // Lock the home dir down: only the owner can list/enter it.
         let _ = guard.fs.chmod(&home, 0o700);
         drop(guard);

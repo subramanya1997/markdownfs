@@ -1,5 +1,5 @@
 use super::perms::{check_permission, Access};
-use super::{Gid, Uid, ROOT_UID};
+use super::{Gid, Uid, ROOT_UID, WHEEL_GID};
 use crate::fs::inode::Inode;
 
 /// Context for the user an agent is acting on behalf of.
@@ -105,10 +105,29 @@ impl Session {
         }
     }
 
+    /// Whether the principal is a wheel-group member (admin-equivalent).
+    pub fn is_wheel(&self) -> bool {
+        self.groups.contains(&WHEEL_GID)
+    }
+
+    /// Whether the session may bypass per-file Read checks (i.e., see every
+    /// directory entry and read every file). True for literal uid=0 or any
+    /// wheel-group member. Privileged write ops (chmod-across-owner,
+    /// chown-uid) still go through the stricter `is_effectively_root` check.
+    /// When delegating, the delegate must also be admin-equivalent.
+    pub fn can_read_anywhere(&self) -> bool {
+        let principal_admin = self.uid == ROOT_UID || self.is_wheel();
+        if !principal_admin {
+            return false;
+        }
+        match &self.delegate {
+            Some(d) => d.uid == ROOT_UID || d.groups.contains(&WHEEL_GID),
+            None => true,
+        }
+    }
+
     /// Whether either the principal or (if delegating) the delegate is root.
-    /// For intersection: both must pass, so root status only helps if the OTHER side passes.
-    /// This is used for checks like "is this session effectively root?" — answer: only if
-    /// there's no delegate constraining it.
+    /// Strict: only literal uid=0 qualifies. Used by privileged write ops.
     pub fn is_effectively_root(&self) -> bool {
         if self.uid != ROOT_UID {
             return false;

@@ -1250,6 +1250,9 @@ impl VirtualFs {
             Some(s) => s,
             None => return true,
         };
+        if session.can_read_anywhere() {
+            return self.get_inode(id).is_ok();
+        }
         let inode = match self.get_inode(id) {
             Ok(i) => i,
             Err(_) => return false,
