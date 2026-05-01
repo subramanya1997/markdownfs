@@ -6,6 +6,10 @@ A high-performance, concurrent markdown database built in Rust. Supports Unix-li
 
 Only Markdown (`.md`) files are supported by design.
 
+> **🚀 Live demo:** [`subramanya97-markdownfs.hf.space`](https://subramanya97-markdownfs.hf.space) — a free Hugging Face Space running this exact binary. Web UI, REST, and MCP all available at one URL.
+>
+> **📚 Docs:** [docs.markdownfs.com](https://docs.markdownfs.com/) · **🤗 Space:** [huggingface.co/spaces/Subramanya97/markdownfs](https://huggingface.co/spaces/Subramanya97/markdownfs)
+
 ## Access Methods
 
 mdfs can be used five ways:
