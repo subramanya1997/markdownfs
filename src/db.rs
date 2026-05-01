@@ -559,7 +559,6 @@ impl MarkdownDb {
         );
         let home_path = format!("/home/{name}");
         let _ = guard.fs.mkdir(&home_path, uid, gid);
-        let _ = guard.fs.cd(&home_path);
 
         drop(guard);
         self.mark_dirty();
@@ -584,6 +583,237 @@ impl MarkdownDb {
     pub fn snapshot_fs(&self) -> VirtualFs {
         self.inner.blocking_read().fs.clone()
     }
+
+    // ---------- Admin operations (gated on wheel/root) ----------
+
+    fn require_wheel(&self, session: &Session, registry: &crate::auth::registry::UserRegistry) -> Result<(), VfsError> {
+        if session.is_effectively_root() || registry.is_wheel_member(session.uid) {
+            Ok(())
+        } else {
+            Err(VfsError::PermissionDenied {
+                path: "admin".to_string(),
+            })
+        }
+    }
+
+    pub async fn admin_list_users(&self, session: &Session) -> Result<Vec<UserSummary>, VfsError> {
+        let guard = self.inner.read().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        Ok(guard
+            .fs
+            .registry
+            .list_users()
+            .into_iter()
+            .map(|u| UserSummary {
+                uid: u.uid,
+                name: u.name.clone(),
+                groups: u
+                    .groups
+                    .iter()
+                    .filter_map(|g| guard.fs.registry.group_name(*g).map(|s| s.to_string()))
+                    .collect(),
+                is_agent: u.is_agent,
+                has_token: u.api_token.is_some(),
+            })
+            .collect())
+    }
+
+    pub async fn admin_list_groups(&self, session: &Session) -> Result<Vec<GroupSummary>, VfsError> {
+        let guard = self.inner.read().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        Ok(guard
+            .fs
+            .registry
+            .list_groups()
+            .into_iter()
+            .map(|g| GroupSummary {
+                gid: g.gid,
+                name: g.name.clone(),
+                members: g
+                    .members
+                    .iter()
+                    .filter_map(|u| guard.fs.registry.user_name(*u).map(|s| s.to_string()))
+                    .collect(),
+            })
+            .collect())
+    }
+
+    pub async fn admin_add_user(
+        &self,
+        session: &Session,
+        name: &str,
+        is_agent: bool,
+    ) -> Result<(Uid, Option<String>), VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        let result = guard.fs.registry.add_user(name, is_agent)?;
+        let uid = result.0;
+        let gid = guard
+            .fs
+            .registry
+            .get_user(uid)
+            .map(|u| u.groups[0])
+            .unwrap_or(0);
+        let home = format!("/home/{name}");
+        let _ = guard.fs.mkdir_p(&home, uid, gid);
+        drop(guard);
+        self.mark_dirty();
+        Ok(result)
+    }
+
+    pub async fn admin_del_user(&self, session: &Session, name: &str) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        guard.fs.registry.del_user(name)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub async fn admin_add_group(&self, session: &Session, name: &str) -> Result<Gid, VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        let gid = guard.fs.registry.add_group(name)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(gid)
+    }
+
+    pub async fn admin_del_group(&self, session: &Session, name: &str) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        guard.fs.registry.del_group(name)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub async fn admin_usermod_add(
+        &self,
+        session: &Session,
+        user: &str,
+        group: &str,
+    ) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        guard.fs.registry.usermod_add_group(user, group)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub async fn admin_usermod_remove(
+        &self,
+        session: &Session,
+        user: &str,
+        group: &str,
+    ) -> Result<(), VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        guard.fs.registry.usermod_remove_group(user, group)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(())
+    }
+
+    pub async fn admin_issue_token(&self, session: &Session, name: &str) -> Result<String, VfsError> {
+        let mut guard = self.inner.write().await;
+        self.require_wheel(session, &guard.fs.registry)?;
+        let raw = guard.fs.registry.regenerate_token(name)?;
+        drop(guard);
+        self.mark_dirty();
+        Ok(raw)
+    }
+
+    pub async fn admin_chmod(
+        &self,
+        session: &Session,
+        path: &str,
+        mode: u16,
+    ) -> Result<(), VfsError> {
+        let info = self.stat(path).await?;
+        let is_wheel = {
+            let guard = self.inner.read().await;
+            guard.fs.registry.is_wheel_member(session.uid)
+        };
+        if !session.is_effectively_root()
+            && !is_wheel
+            && !session.is_effective_owner(info.uid)
+        {
+            return Err(VfsError::PermissionDenied {
+                path: path.to_string(),
+            });
+        }
+        self.chmod(path, mode).await
+    }
+
+    pub async fn admin_chown(
+        &self,
+        session: &Session,
+        path: &str,
+        owner: &str,
+        group: Option<&str>,
+    ) -> Result<(), VfsError> {
+        let guard = self.inner.read().await;
+        // chown across owners requires root; same-owner gid change requires ownership
+        let target_uid = guard
+            .fs
+            .registry
+            .lookup_uid(owner)
+            .ok_or_else(|| VfsError::AuthError {
+                message: format!("no such user: {owner}"),
+            })?;
+        let target_gid = match group {
+            Some(g) => guard
+                .fs
+                .registry
+                .lookup_gid(g)
+                .ok_or_else(|| VfsError::AuthError {
+                    message: format!("no such group: {g}"),
+                })?,
+            None => guard
+                .fs
+                .registry
+                .get_user(target_uid)
+                .map(|u| u.groups[0])
+                .unwrap_or(0),
+        };
+        let is_wheel = guard.fs.registry.is_wheel_member(session.uid);
+        drop(guard);
+        let info = self.stat(path).await?;
+        let is_owner_change = info.uid != target_uid;
+        if is_owner_change && !session.is_effectively_root() && !is_wheel {
+            return Err(VfsError::PermissionDenied {
+                path: path.to_string(),
+            });
+        }
+        if !is_owner_change
+            && !session.is_effectively_root()
+            && !is_wheel
+            && !session.is_effective_owner(info.uid)
+        {
+            return Err(VfsError::PermissionDenied {
+                path: path.to_string(),
+            });
+        }
+        self.chown(path, target_uid, target_gid).await
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct UserSummary {
+    pub uid: Uid,
+    pub name: String,
+    pub groups: Vec<String>,
+    pub is_agent: bool,
+    pub has_token: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct GroupSummary {
+    pub gid: Gid,
+    pub name: String,
+    pub members: Vec<String>,
 }
 
 impl DbInner {

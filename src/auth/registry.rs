@@ -261,6 +261,19 @@ impl UserRegistry {
     pub fn is_wheel_member(&self, uid: Uid) -> bool {
         self.user_in_group(uid, WHEEL_GID)
     }
+
+    /// Generate a fresh API token for an existing user, returning the raw token.
+    /// The previous token (if any) is invalidated.
+    pub fn regenerate_token(&mut self, name: &str) -> Result<String, VfsError> {
+        let uid = self.lookup_uid(name).ok_or_else(|| VfsError::AuthError {
+            message: format!("no such user: {name}"),
+        })?;
+        let raw = generate_token();
+        let hash = hash_token(&raw);
+        let user = self.users.get_mut(&uid).expect("uid in users map");
+        user.api_token = Some(hash);
+        Ok(raw)
+    }
 }
 
 fn generate_token() -> String {
